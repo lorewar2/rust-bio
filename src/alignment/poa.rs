@@ -43,6 +43,7 @@ use crate::alignment::pairwise::{MatchFunc, Scoring};
 
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Topo;
+use petgraph::dot::{Dot, Config};
 
 use petgraph::{Directed, Graph, Incoming};
 
@@ -242,6 +243,8 @@ pub struct Aligner<F: MatchFunc> {
 impl<F: MatchFunc> Aligner<F> {
     /// Create new instance.
     pub fn new(scoring: Scoring<F>, reference: TextSlice) -> Self {
+        println!("POA Aligner constructor run"); //added
+        println!("Reference to vector: {:?}", reference.to_vec()); //added
         Aligner {
             traceback: Traceback::new(),
             query: reference.to_vec(),
@@ -265,6 +268,7 @@ impl<F: MatchFunc> Aligner<F> {
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
         self.traceback = self.poa.global(query);
+        self.traceback.print(&self.poa.graph, query);
         self
     }
 
@@ -301,6 +305,7 @@ impl<F: MatchFunc> Poa<F> {
     /// * `scoring` - the score struct
     /// * `reference` - a reference TextSlice to populate the initial reference graph
     pub fn from_string(scoring: Scoring<F>, seq: TextSlice) -> Self {
+        println!("from_string function to make partial order graph-petgraph lib"); //added
         let mut graph: Graph<u8, i32, Directed, usize> =
             Graph::with_capacity(seq.len(), seq.len() - 1);
         let mut prev: NodeIndex<usize> = graph.add_node(seq[0]);
@@ -310,7 +315,7 @@ impl<F: MatchFunc> Poa<F> {
             graph.add_edge(prev, node, 1);
             prev = node;
         }
-
+        println!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel])); //added
         Poa { scoring, graph }
     }
 
