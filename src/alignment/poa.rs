@@ -25,39 +25,7 @@ pub enum AlignmentOperation {
     Ins(Option<usize>),
 }
 
-pub struct HomopolymerSequence {
-    pub bases: Vec<u8>,
-    pub frequencies: Vec<u8>,
-}
 
-impl HomopolymerSequence {
-    fn new() -> Self{
-        HomopolymerSequence {
-            bases: Vec::new(),
-            frequencies: Vec::new(),
-        }
-    }
-    fn read_query(&mut self, query: &Vec<u8>) -> &mut Self {
-        let mut prev_base = 0;
-        for &base in query{
-            if prev_base == base{
-                if let Some(last) = self.frequencies.last_mut() {
-                    *last = *last + 1;
-                }
-            }
-            else {
-                self.bases.push(base);
-                self.frequencies.push(1);
-            }
-            prev_base = base;
-        }
-        self
-    }
-    pub fn print_sequence(&self){
-        println!("base sequence{:?}", self.bases);
-        println!("frequency sequence{:?}", self.frequencies);
-    }
-}
 pub struct Alignment {
     pub score: i32,
     //    xstart: Edge,
@@ -235,7 +203,6 @@ pub struct Aligner<F: MatchFunc> {
     traceback: Traceback,
     query: Vec<u8>,
     poa: Poa<F>,
-    hps: HomopolymerSequence, //added
 }
 
 impl<F: MatchFunc> Aligner<F> {
@@ -247,7 +214,6 @@ impl<F: MatchFunc> Aligner<F> {
             traceback: Traceback::new(),
             query: reference.to_vec(),
             poa: Poa::from_string(scoring, reference),
-            hps: HomopolymerSequence::new(), //added
         }
     }
 
@@ -267,12 +233,8 @@ impl<F: MatchFunc> Aligner<F> {
     /// Globally align a given query against the graph.
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
-        self.hps.read_query(&self.query);
-        self.hps.print_sequence();
         self.traceback = self.poa.global(query);
         self.traceback.print(&self.poa.graph, query);
-        self.traceback = self.poa.hps_global(&self.hps); //modified function
-        self.traceback.print(&self.poa.graph, &self.hps.bases); //added print score matrix
         self
     }
 
@@ -360,86 +322,6 @@ impl<F: MatchFunc> Poa<F> {
             println!("Nodes with directed edges to current node:{:?}", prevs); //added
             // query base and its index in the DAG (traceback matrix rows)
             for (j_p, q) in query.iter().enumerate() {
-                let j = j_p + 1;
-                // match and deletion scores for the first reference base
-                let max_cell = if prevs.is_empty() {
-                    //println!("NO directed, matching score from i = 0 and j = {} : {} + {}", j - 1 ,traceback.get(0, j - 1).score , self.scoring.match_fn.score(r, *q));
-                    TracebackCell {
-                        score: traceback.get(0, j - 1).score + self.scoring.match_fn.score(r, *q),
-                        op: AlignmentOperation::Match(None),
-                    }
-                } else {
-                    let mut max_cell = TracebackCell {
-                        score: MIN_SCORE,
-                        op: AlignmentOperation::Match(None),
-                    };
-                    for prev_node in &prevs {
-                        let i_p: usize = prev_node.index() + 1; // index of previous node
-                        max_cell = max(
-                            max_cell,
-                            max(
-                                TracebackCell {
-                                    score: traceback.get(i_p, j - 1).score
-                                        + self.scoring.match_fn.score(r, *q),
-                                    op: AlignmentOperation::Match(Some((i_p - 1, i - 1))),
-                                },
-                                TracebackCell {
-                                    score: traceback.get(i_p, j).score + self.scoring.gap_open,
-                                    op: AlignmentOperation::Del(Some((i_p - 1, i))),
-                                },
-                            ),
-                        );
-                    }
-                    max_cell
-                };
-
-                let score = max(
-                    max_cell,
-                    TracebackCell {
-                        score: traceback.get(i, j - 1).score + self.scoring.gap_open,
-                        op: AlignmentOperation::Ins(Some(i - 1)),
-                    },
-                );
-                //println!("{}", score.score);
-                traceback.set(i, j, score);
-            }
-        }
-
-        traceback
-    }
-    pub fn hps_global(&self, query: &HomopolymerSequence) -> Traceback {
-        assert!(self.graph.node_count() != 0);
-
-        // dimensions of the traceback matrix
-        let (m, n) = (self.graph.node_count(), query.bases.len());
-        let mut traceback = Traceback::with_capacity(m, n);
-        traceback.initialize_scores(self.scoring.gap_open);
-        println!("Printing the  empty Initialized matrix");//added
-        traceback.print(&self.graph, &query.bases);//added
-
-        traceback.set(
-            0,
-            0,
-            TracebackCell {
-                score: 0,
-                op: AlignmentOperation::Match(None),
-            },
-        );
-        // construct the score matrix (O(n^2) space)
-        println!("Topological sort of reference graph!!"); //added
-        let mut topo = Topo::new(&self.graph);
-        while let Some(node) = topo.next(&self.graph) {
-            // reference base and index
-            let r = self.graph.raw_nodes()[node.index()].weight; // reference base at previous index
-            println!("Previous Index Reference Node being processed index:{} base:{}", node.index(), r); //added
-            let i = node.index() + 1;
-            traceback.last = node;
-            // iterate over the predecessors of this node
-            let prevs: Vec<NodeIndex<usize>> =
-                self.graph.neighbors_directed(node, Incoming).collect();
-            println!("Nodes with directed edges to current node:{:?}", prevs); //added
-            // query base and its index in the DAG (traceback matrix rows)
-            for (j_p, q) in query.bases.iter().enumerate() {
                 let j = j_p + 1;
                 // match and deletion scores for the first reference base
                 let max_cell = if prevs.is_empty() {
