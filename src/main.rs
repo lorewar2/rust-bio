@@ -1,8 +1,45 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
-
+use petgraph::dot::{Dot, Config};
 fn main() {
+    
+    let x = b"CCT";
+    let y = b"CCTG";
 
+    let scoring = Scoring::new(-2, -2, |a: u8, b: u8| if a == b { 1i32 } else { -1i32 });
+    let mut aligner = Aligner::new(scoring, x);
+    //
+    aligner.global(y).add_to_graph();
+    //aligner.global(y).alignment().score;
+    let graph = aligner.graph();
+    println!("Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel]));
+    aligner.poa.consensus();
+    //
+    //let graph = aligner.graph();
+    //println!("Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel]));
+    //
+
+    /* 
+
+    /* 
+    //testing example 4 from poapy
+    let seqvec = vec!["CCT",
+    "GCCTG"];
+    
+    let scoring = Scoring::new(-2, -2, |a: u8, b: u8| if a == b { 1i32 } else { -1i32 });
+    let mut i = 0;
+    let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
+    for seq in seqvec{
+        if(i != 0) {
+            aligner.global(seq.as_bytes()).add_to_graph();
+            println!("{}", seq);
+        }
+        i += 1;
+    }
+    let graph = aligner.graph();
+    aligner.poa.consensus();
+    */
+    //let graph = aligner.graph();
     let x = b"ABCDEFG";
     let y = b"AABBBAA";
     let z = b"AABCBAA";
@@ -32,6 +69,7 @@ fn main() {
     let hps_graph = aligner_hps.graph();
 
     println!("{}",hps_graph.node_count());
+    */
 
 }
 

@@ -5,6 +5,7 @@ use crate::utils::TextSlice;
 
 use crate::alignment::pairwise::{MatchFunc, Scoring};
 
+use petgraph::Direction::Outgoing;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Topo;
 use petgraph::dot::{Dot, Config};
@@ -29,7 +30,7 @@ pub enum AlignmentOperation {
 pub struct Alignment {
     pub score: i32,
     //    xstart: Edge,
-    operations: Vec<AlignmentOperation>,
+    pub operations: Vec<AlignmentOperation>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +152,35 @@ impl Traceback {
         println!();
     }
 
+    pub fn print_operation(&self, g: &Graph<u8, i32, Directed, usize>, query: TextSlice) {
+        let (m, n) = (g.node_count(), query.len());
+        print!(".\t");
+        for base in query.iter().take(n) {
+            print!("{:?}\t", *base);
+        }
+        for i in 0..m {
+            print!("\n{:?}\t", g.raw_nodes()[i].weight);
+            for j in 0..n {
+                let operation = &self.get(i + 1, j + 1).op;
+                match operation {
+                    AlignmentOperation::Match(x) => match x {
+                        Some(x) => print!("m{},{}\t",x.0,x.1),
+                        None => print!("mn\t"),
+                    },
+                    AlignmentOperation::Del(x) => match x {
+                        Some(x) => print!("d{},{}\t",x.0,x.1),
+                        None => print!("dn\t"),
+                    },
+                    AlignmentOperation::Ins(x) => match x {
+                        Some(x) => print!("i{}\t",x),
+                        None => print!("in\t"),
+                    }
+                }
+            }
+        }
+        println!();
+    }
+
     pub fn alignment(&self) -> Alignment {
         // optimal AlignmentOperation path
         let mut ops: Vec<AlignmentOperation> = vec![];
@@ -159,7 +189,7 @@ impl Traceback {
         let mut i = self.last.index() + 1;
         let mut j = self.cols;
 
-        while i > 0 && j > 0 {
+        while i > 0 || j > 0 {
             // push operation and edge corresponding to (one of the) optimal
             // routes
             ops.push(self.matrix[i][j].op.clone());
@@ -176,13 +206,14 @@ impl Traceback {
                     j -= 1;
                 }
                 AlignmentOperation::Match(None) => {
-                    break;
-                }
-                AlignmentOperation::Del(None) => {
+                    i -= 1; // break;
                     j -= 1;
                 }
+                AlignmentOperation::Del(None) => {
+                    i -= 1; // j -= 1;
+                }
                 AlignmentOperation::Ins(None) => {
-                    i -= 1;
+                    j -= 1; // i -= 1;
                 }
             }
         }
@@ -202,7 +233,7 @@ impl Traceback {
 pub struct Aligner<F: MatchFunc> {
     traceback: Traceback,
     query: Vec<u8>,
-    poa: Poa<F>,
+    pub poa: Poa<F>,
 }
 
 impl<F: MatchFunc> Aligner<F> {
@@ -221,7 +252,7 @@ impl<F: MatchFunc> Aligner<F> {
     pub fn add_to_graph(&mut self) -> &mut Self {
         let alignment = self.traceback.alignment();
         self.poa.add_alignment(&alignment, &self.query);
-        println!("{:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeNoLabel])); //added
+        //println!("{:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeNoLabel])); //added
         self
     }
 
@@ -234,12 +265,30 @@ impl<F: MatchFunc> Aligner<F> {
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
         self.traceback = self.poa.global(query);
-        self.traceback.print(&self.poa.graph, query);
+        self.traceback.print_operation(&self.poa.graph, query);
+        println!(" ");
+        for op in self.traceback.alignment().operations{
+            match op {
+                AlignmentOperation::Match(x) => match x {
+                    Some(x) => print!("m{},{}\t",x.0,x.1),
+                    None => print!("mn\t"),
+                },
+                AlignmentOperation::Del(x) => match x {
+                    Some(x) => print!("d{},{}\t",x.0,x.1),
+                    None => print!("dn\t"),
+                },
+                AlignmentOperation::Ins(x) => match x {
+                    Some(x) => print!("i{}\t",x),
+                    None => print!("in\t"),
+                }
+            }
+        }
         self
     }
 
     /// Return alignment graph.
     pub fn graph(&self) -> &POAGraph {
+        //println!("Reference Graph: {:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeIndexLabel])); //added
         &self.poa.graph
     }
 }
@@ -281,7 +330,7 @@ impl<F: MatchFunc> Poa<F> {
             graph.add_edge(prev, node, 1);
             prev = node;
         }
-        println!("Reference Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel])); //added
+        //println!("Reference Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel])); //added
         Poa { scoring, graph }
     }
 
@@ -297,7 +346,7 @@ impl<F: MatchFunc> Poa<F> {
         let mut traceback = Traceback::with_capacity(m, n);
         traceback.initialize_scores(self.scoring.gap_open);
         println!("Printing the  empty Initialized matrix");//added
-        traceback.print(&self.graph, query);//added
+        //traceback.print(&self.graph, query);//added
 
         traceback.set(
             0,
@@ -379,14 +428,23 @@ impl<F: MatchFunc> Poa<F> {
     pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice) {
         let mut prev: NodeIndex<usize> = NodeIndex::new(0);
         let mut i: usize = 0;
+        let mut prev_node_unmatched: bool = false;
         for op in aln.operations.iter() {
             match op {
-                AlignmentOperation::Match(None) => {
+                AlignmentOperation::Match(None) => { //previously i += 1;
+                    println!("");//need to increment
+                    if prev_node_unmatched == true {
+                        let node = NodeIndex::new(0);
+                        println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
+                        self.graph.add_edge(prev, node, 1);
+                        prev = node;
+                    }
                     i += 1;
                 }
-                AlignmentOperation::Match(Some((_, p))) => {
+                AlignmentOperation::Match(Some((_, p))) => {   
                     let node = NodeIndex::new(*p);
                     if (seq[i] != self.graph.raw_nodes()[*p].weight) && (seq[i] != b'X') {
+                        println!("mpx making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                         let node = self.graph.add_node(seq[i]);
                         self.graph.add_edge(prev, node, 1);
                         prev = node;
@@ -394,10 +452,12 @@ impl<F: MatchFunc> Poa<F> {
                         // increment node weight
                         match self.graph.find_edge(prev, node) {
                             Some(edge) => {
+                                println!("mpm incr edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                                 *self.graph.edge_weight_mut(edge).unwrap() += 1;
                             }
                             None => {
                                 // where the previous node was newly added
+                                println!("mpm making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                                 self.graph.add_edge(prev, node, 1);
                             }
                         }
@@ -405,17 +465,85 @@ impl<F: MatchFunc> Poa<F> {
                     }
                     i += 1;
                 }
-                AlignmentOperation::Ins(None) => {
+                AlignmentOperation::Ins(None) => { // previously just i += 1
+                    let node = self.graph.add_node(seq[i]);
+                    if prev_node_unmatched == true {
+                        println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
+                        self.graph.add_edge(prev, node, 1);
+                    }
+                    prev = node;
+                    prev_node_unmatched = true;
                     i += 1;
                 }
                 AlignmentOperation::Ins(Some(_)) => {
                     let node = self.graph.add_node(seq[i]);
-                    self.graph.add_edge(prev, node, 1);
+                    println!("insp making edge from {}->{}", self.graph.raw_nodes()[prev.index()].weight, seq[i]);
+                    self.graph.add_edge(prev, node, 1); 
                     prev = node;
                     i += 1;
                 }
                 AlignmentOperation::Del(_) => {} // we should only have to skip over deleted nodes
             }
+        }
+    }
+
+    pub fn consensus(self) {
+        //topologically sort the nodes
+        let mut topo = Topo::new(&self.graph);
+        //save the node indices and reverse order
+        let mut topoIndices = Vec::new();
+        let mut maxIndex = 0;
+        let mut maxScore = 0.0;
+        while let Some(node) = topo.next(&self.graph) {
+            topoIndices.push(node);
+            if maxIndex < node.index(){
+                maxIndex = node.index()
+            }
+        }
+        topoIndices.reverse();
+        //define score and nextinpath vectors with capacity of num nodes.
+        let mut scores: Vec<f64> = vec![0.0; maxIndex + 1];
+        let mut nextInPath: Vec<usize> = vec![0; maxIndex + 1];
+        println!("{:?}", scores);
+        println!("{:?}", nextInPath);
+        //iterate thorugh the nodes in revere
+        println!("Node reverse topological order");
+        for node in topoIndices{
+            print!("start node: {:?}", self.graph.raw_nodes()[node.index()].weight);
+            let mut bestWeightScoreEdge: (i32, f64, usize) = (-1 , -1.0, 99);
+            //let mut outEdges = self.graph.neighbors_directed(node, Outgoing).detach();
+            let mut neighbourNodes = self.graph.neighbors_directed(node, Outgoing);
+            while let Some(neighbourNode) = neighbourNodes.next() {
+                print!(" end node: {:?}", self.graph.raw_nodes()[neighbourNode.index()].weight);
+                let mut edges = self.graph.edges_connecting(node, neighbourNode);
+                let mut weightScoreEdge: (i32, f64, usize) = (-1 , -1.0, 99);
+                let mut weight: i32 = 0;
+                while let Some(edge) = edges.next() {
+                    weight += edge.weight().clone();
+                    print!(" Edge of weight {}", weight);
+                }
+                weightScoreEdge = (weight, scores[neighbourNode.index()], neighbourNode.index());
+                if weightScoreEdge > bestWeightScoreEdge{
+                    bestWeightScoreEdge = weightScoreEdge;
+                }
+                
+            }
+            println!("");
+            //save score and traceback
+            if bestWeightScoreEdge.0 as f64 + bestWeightScoreEdge.1 > maxScore{
+                maxScore = bestWeightScoreEdge.0 as f64 + bestWeightScoreEdge.1;
+            }
+            scores[node.index()] = bestWeightScoreEdge.0 as f64 + bestWeightScoreEdge.1;
+            nextInPath[node.index()] = bestWeightScoreEdge.2;
+        }
+        println!("{:?}", scores);
+        println!("{:?}", nextInPath);
+        let mut pos = scores.iter().position(|&r| r == maxScore).unwrap();
+        //using traceback print out the max sequence
+        println!("Consensus");
+        while pos != 99{
+            println!("{}", self.graph.raw_nodes()[pos].weight);
+            pos = nextInPath[pos];
         }
     }
 }
