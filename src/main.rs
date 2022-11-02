@@ -1,76 +1,49 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
 use petgraph::dot::{Dot, Config};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 fn main() {
-    
-    let x = b"CCT";
-    let y = b"CCTG";
-
-    let scoring = Scoring::new(-2, -2, |a: u8, b: u8| if a == b { 1i32 } else { -1i32 });
-    let mut aligner = Aligner::new(scoring, x);
-    //
-    aligner.global(y).add_to_graph();
-    //aligner.global(y).alignment().score;
-    let graph = aligner.graph();
-    println!("Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel]));
-    aligner.poa.consensus();
-    //
-    //let graph = aligner.graph();
-    //println!("Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel]));
-    //
-
-    /* 
-
-    /* 
-    //testing example 4 from poapy
-    let seqvec = vec!["CCT",
-    "GCCTG"];
+    let example4 = vec![
+        "TGTACNTGTTTGTGAGGCTA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTTATGTACTTGTTTGTGAGGCAA",
+        "AAGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGGTTTGTGNAGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTNAGGCAA",
+        "AGTTCCTGCTGCGTTTGCT",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTT",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTNCTGNTGNGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "GTACNTGTTTGTGAGGCTA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTCCTGCTGCTTTTGCTGGACTGATGTACTTGATTGTGAGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTCCTGCTGCGCTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGCGGCAA",
+        "AGTCCTGCGCGTTTGCGGACGGATGTACTTGTTGTGAGGCAA",
+        "GCAA",
+        "GGCAA",
+        "CTGATGTACTTGTTGTGAGGGCAA",
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
+        "GTTCTGCCTGCGTTTGCTGAACTGATGTACTTGTTAGTAAGCAA",
+        "CGTTACTGCGGGGTTTGCTGGACTCATGACTTTGTTNGTAGGCAA",
+    ];
+    let seqvec = example4;
     
     let scoring = Scoring::new(-2, -2, |a: u8, b: u8| if a == b { 1i32 } else { -1i32 });
     let mut i = 0;
     let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
     for seq in seqvec{
-        if(i != 0) {
+        if i != 0 {
             aligner.global(seq.as_bytes()).add_to_graph();
             println!("{}", seq);
         }
         i += 1;
+        
     }
-    let graph = aligner.graph();
-    aligner.poa.consensus();
-    */
-    //let graph = aligner.graph();
-    let x = b"ABCDEFG";
-    let y = b"AABBBAA";
-    let z = b"AABCBAA";
-
-    //turn the sequences into homopolymer compressed
-    let mut x_hps = HomopolymerSequence::new();
-    let mut y_hps = HomopolymerSequence::new();
-    let mut z_hps = HomopolymerSequence::new();
-    x_hps.read_query(&x.to_vec());
-    y_hps.read_query(&y.to_vec());
-    z_hps.read_query(&z.to_vec());
-
-    //scoring definition
-    let scoring = Scoring::new(-4, -2, |a: u8, b: u8| if a == b { 2i32 } else { -4i32 });
-    let scoring_hps = Scoring::new(-4, -2, |a: u8, b: u8| if a == b { 2i32 } else { -4i32 });
-    //normal aligner (not compressed)
-    let mut aligner = Aligner::new(scoring, x);
-
-    aligner.global(y).add_to_graph();
-    aligner.global(z).alignment().score;
-
-    //hps aligner (compressed)
-    let mut aligner_hps = Aligner::new(scoring_hps, &x_hps.bases);
-    
-    aligner_hps.global(&y_hps.bases).add_to_graph();
-    aligner_hps.global(&z_hps.bases).add_to_graph();
-    let hps_graph = aligner_hps.graph();
-
-    println!("{}",hps_graph.node_count());
-    */
-
+    aligner.poa.consensus(); 
 }
 
 pub struct HomopolymerSequence {

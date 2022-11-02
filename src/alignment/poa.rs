@@ -265,8 +265,9 @@ impl<F: MatchFunc> Aligner<F> {
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
         self.traceback = self.poa.global(query);
+        self.traceback.print(&self.poa.graph, query);
         self.traceback.print_operation(&self.poa.graph, query);
-        println!(" ");
+        //println!(" ");
         for op in self.traceback.alignment().operations{
             match op {
                 AlignmentOperation::Match(x) => match x {
@@ -345,7 +346,7 @@ impl<F: MatchFunc> Poa<F> {
         let (m, n) = (self.graph.node_count(), query.len());
         let mut traceback = Traceback::with_capacity(m, n);
         traceback.initialize_scores(self.scoring.gap_open);
-        println!("Printing the  empty Initialized matrix");//added
+        //println!("Printing the  empty Initialized matrix");//added
         //traceback.print(&self.graph, query);//added
 
         traceback.set(
@@ -428,16 +429,31 @@ impl<F: MatchFunc> Poa<F> {
     pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice) {
         let mut prev: NodeIndex<usize> = NodeIndex::new(0);
         let mut i: usize = 0;
-        let mut prev_node_unmatched: bool = false;
+        let mut start_seq_unmatched: bool = false;
         for op in aln.operations.iter() {
             match op {
                 AlignmentOperation::Match(None) => { //previously i += 1;
-                    println!("");//need to increment
-                    if prev_node_unmatched == true {
-                        let node = NodeIndex::new(0);
-                        println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                        self.graph.add_edge(prev, node, 1);
-                        prev = node;
+                    println!("");
+                    let node: NodeIndex<usize> = NodeIndex::new(0);
+                    if (seq[i] != self.graph.raw_nodes()[0].weight) && (seq[i] != b'X') {
+                        println!("Start node mismatch with sequence, do something");
+                        let new_node = self.graph.add_node(seq[i]);
+                        if start_seq_unmatched == true {
+                            println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
+                            self.graph.add_edge(prev, new_node, 1);
+                            prev = new_node;
+                            start_seq_unmatched = false;
+                        }
+                        prev = new_node;
+                    }
+                    else {
+                        println!("Start node match with sequence, do nothing");
+                        if start_seq_unmatched == true {
+                            println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
+                            self.graph.add_edge(prev, node, 1);
+                            prev = node;
+                            start_seq_unmatched = false;
+                        }
                     }
                     i += 1;
                 }
@@ -466,16 +482,25 @@ impl<F: MatchFunc> Poa<F> {
                     i += 1;
                 }
                 AlignmentOperation::Ins(None) => { // previously just i += 1
+                    //insertion at the start, take care if the sequence
                     let node = self.graph.add_node(seq[i]);
-                    if prev_node_unmatched == true {
+                    if start_seq_unmatched == true {
                         println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
                         self.graph.add_edge(prev, node, 1);
+                        start_seq_unmatched = false;
                     }
                     prev = node;
-                    prev_node_unmatched = true;
+                    start_seq_unmatched = true;
                     i += 1;
                 }
                 AlignmentOperation::Ins(Some(_)) => {
+                    if start_seq_unmatched == true {
+                        let node = NodeIndex::new(0);
+                        println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
+                        self.graph.add_edge(prev, node, 1);
+                        prev = node;
+                        start_seq_unmatched = false;
+                    }
                     let node = self.graph.add_node(seq[i]);
                     println!("insp making edge from {}->{}", self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                     self.graph.add_edge(prev, node, 1); 
@@ -487,7 +512,7 @@ impl<F: MatchFunc> Poa<F> {
         }
     }
 
-    pub fn consensus(self) {
+    pub fn consensus(&self) {
         //topologically sort the nodes
         let mut topo = Topo::new(&self.graph);
         //save the node indices and reverse order
@@ -499,7 +524,11 @@ impl<F: MatchFunc> Poa<F> {
             if maxIndex < node.index(){
                 maxIndex = node.index()
             }
+            println!("{}", node.index());
         }
+        println!("Graph: {:?}", Dot::with_config(&self.graph, &[Config::EdgeIndexLabel]));
+        println!("Max index == {}", maxIndex);
+        
         topoIndices.reverse();
         //define score and nextinpath vectors with capacity of num nodes.
         let mut scores: Vec<f64> = vec![0.0; maxIndex + 1];
@@ -542,8 +571,41 @@ impl<F: MatchFunc> Poa<F> {
         //using traceback print out the max sequence
         println!("Consensus");
         while pos != 99{
-            println!("{}", self.graph.raw_nodes()[pos].weight);
+            self.display_corrosponding_character(&self.graph.raw_nodes()[pos].weight);
             pos = nextInPath[pos];
+        }
+        println!("");
+    }
+
+    fn display_corrosponding_character(&self, &int: &u8) {
+        match int {
+            65 => print!("A"),
+            66 => print!("B"),
+            67 => print!("C"),
+            68 => print!("D"),
+            69 => print!("E"),
+            70 => print!("F"),
+            71 => print!("G"),
+            72 => print!("H"),
+            73 => print!("I"),
+            74 => print!("J"),
+            75 => print!("K"),
+            76 => print!("L"),
+            77 => print!("M"),
+            78 => print!("N"),
+            79 => print!("O"),
+            80 => print!("P"),
+            81 => print!("Q"),
+            82 => print!("R"),
+            83 => print!("S"),
+            84 => print!("T"),
+            85 => print!("U"),
+            86 => print!("V"),
+            87 => print!("W"),
+            88 => print!("X"),
+            89 => print!("Y"),
+            90 => print!("Z"),            
+            _ => (),
         }
     }
 }
