@@ -1,9 +1,11 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
 use petgraph::dot::{Dot, Config};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 fn main() {
+    let test = vec![
+        "GCC",
+        "CTGCC",
+    ];
     let example4 = vec![
         "TGTACNTGTTTGTGAGGCTA",
         "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
@@ -30,20 +32,28 @@ fn main() {
         "GTTCTGCCTGCGTTTGCTGAACTGATGTACTTGTTAGTAAGCAA",
         "CGTTACTGCGGGGTTTGCTGGACTCATGACTTTGTTNGTAGGCAA",
     ];
-    let seqvec = example4;
+    let seqvec = test;
     
     let scoring = Scoring::new(-2, -2, |a: u8, b: u8| if a == b { 1i32 } else { -1i32 });
     let mut i = 0;
     let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
     for seq in seqvec{
         if i != 0 {
-            aligner.global(seq.as_bytes()).add_to_graph();
+            aligner.global(seq.as_bytes()).add_to_graph(i);
             println!("{}", seq);
         }
         i += 1;
         
     }
-    aligner.poa.consensus(); 
+    aligner.poa.consensus();
+    let mut index: u8 = 0;
+    for node in aligner.poa.node_seq_tracker {
+        println!("Node index: {} ", index);
+        for j in node {
+            println!("seq {} " , j);
+        }
+        index += 1;
+    }
 }
 
 pub struct HomopolymerSequence {

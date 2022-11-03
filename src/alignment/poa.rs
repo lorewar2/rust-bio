@@ -249,9 +249,9 @@ impl<F: MatchFunc> Aligner<F> {
     }
 
     /// Add the alignment of the last query to the graph.
-    pub fn add_to_graph(&mut self) -> &mut Self {
+    pub fn add_to_graph(&mut self, seq_number: u8) -> &mut Self {
         let alignment = self.traceback.alignment();
-        self.poa.add_alignment(&alignment, &self.query);
+        self.poa.add_alignment(&alignment, &self.query, seq_number);
         //println!("{:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeNoLabel])); //added
         self
     }
@@ -301,6 +301,7 @@ impl<F: MatchFunc> Aligner<F> {
 pub struct Poa<F: MatchFunc> {
     scoring: Scoring<F>,
     pub graph: POAGraph,
+    pub node_seq_tracker: Vec<Vec<u8>>,
 }
 
 impl<F: MatchFunc> Poa<F> {
@@ -311,7 +312,7 @@ impl<F: MatchFunc> Poa<F> {
     /// * `scoring` - the score struct
     /// * `poa` - the partially ordered reference alignment
     pub fn new(scoring: Scoring<F>, graph: POAGraph) -> Self {
-        Poa { scoring, graph }
+        Poa { scoring, graph, node_seq_tracker: Vec::new() }
     }
 
     /// Create a new POA graph from an initial reference sequence and alignment penalties.
@@ -321,18 +322,21 @@ impl<F: MatchFunc> Poa<F> {
     /// * `scoring` - the score struct
     /// * `reference` - a reference TextSlice to populate the initial reference graph
     pub fn from_string(scoring: Scoring<F>, seq: TextSlice) -> Self {
+        let mut node_seq_tracker = Vec::new();
         println!("from_string function to make partial order graph-petgraph lib"); //added
         let mut graph: Graph<u8, i32, Directed, usize> =
             Graph::with_capacity(seq.len(), seq.len() - 1);
         let mut prev: NodeIndex<usize> = graph.add_node(seq[0]);
+        node_seq_tracker.push(vec![0]);
         let mut node: NodeIndex<usize>;
         for base in seq.iter().skip(1) {
+            node_seq_tracker.push(vec![0]);
             node = graph.add_node(*base);
             graph.add_edge(prev, node, 1);
             prev = node;
         }
         //println!("Reference Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel])); //added
-        Poa { scoring, graph }
+        Poa { scoring, graph, node_seq_tracker }
     }
 
     /// A global Needleman-Wunsch aligner on partially ordered graphs.
@@ -341,7 +345,6 @@ impl<F: MatchFunc> Poa<F> {
     /// * `query` - the query TextSlice to align against the internal graph member
     pub fn global(&self, query: TextSlice) -> Traceback {
         assert!(self.graph.node_count() != 0);
-
         // dimensions of the traceback matrix
         let (m, n) = (self.graph.node_count(), query.len());
         let mut traceback = Traceback::with_capacity(m, n);
@@ -426,7 +429,7 @@ impl<F: MatchFunc> Poa<F> {
     ///
     /// * `aln` - The alignment of the new sequence to the graph
     /// * `seq` - The sequence being incorporated
-    pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice) {
+    pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice, seq_number: u8) {
         let mut prev: NodeIndex<usize> = NodeIndex::new(0);
         let mut i: usize = 0;
         let mut start_seq_unmatched: bool = false;
@@ -438,6 +441,7 @@ impl<F: MatchFunc> Poa<F> {
                     if (seq[i] != self.graph.raw_nodes()[0].weight) && (seq[i] != b'X') {
                         println!("Start node mismatch with sequence, do something");
                         let new_node = self.graph.add_node(seq[i]);
+                        self.node_seq_tracker.push(vec![seq_number]);
                         if start_seq_unmatched == true {
                             println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
                             self.graph.add_edge(prev, new_node, 1);
@@ -462,6 +466,7 @@ impl<F: MatchFunc> Poa<F> {
                     if (seq[i] != self.graph.raw_nodes()[*p].weight) && (seq[i] != b'X') {
                         println!("mpx making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                         let node = self.graph.add_node(seq[i]);
+                        self.node_seq_tracker.push(vec![seq_number]);
                         self.graph.add_edge(prev, node, 1);
                         prev = node;
                     } else {
@@ -470,11 +475,13 @@ impl<F: MatchFunc> Poa<F> {
                             Some(edge) => {
                                 println!("mpm incr edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                                 *self.graph.edge_weight_mut(edge).unwrap() += 1;
+                                self.node_seq_tracker[node.index()].push(seq_number);
                             }
                             None => {
                                 // where the previous node was newly added
                                 println!("mpm making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                                 self.graph.add_edge(prev, node, 1);
+                                self.node_seq_tracker[node.index()].push(seq_number);
                             }
                         }
                         prev = NodeIndex::new(*p);
@@ -484,6 +491,7 @@ impl<F: MatchFunc> Poa<F> {
                 AlignmentOperation::Ins(None) => { // previously just i += 1
                     //insertion at the start, take care if the sequence
                     let node = self.graph.add_node(seq[i]);
+                    self.node_seq_tracker.push(vec![seq_number]);
                     if start_seq_unmatched == true {
                         println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
                         self.graph.add_edge(prev, node, 1);
@@ -502,6 +510,7 @@ impl<F: MatchFunc> Poa<F> {
                         start_seq_unmatched = false;
                     }
                     let node = self.graph.add_node(seq[i]);
+                    self.node_seq_tracker.push(vec![seq_number]);
                     println!("insp making edge from {}->{}", self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                     self.graph.add_edge(prev, node, 1); 
                     prev = node;
@@ -512,6 +521,17 @@ impl<F: MatchFunc> Poa<F> {
         }
     }
 
+    pub fn allConsensus(&self, num_seq_added: u8){
+        let maxfraction = 0.5;
+        let passno = 0;
+        let maxpasses = 10;
+        let mut lastlen = 1000;
+        let mut exclusions: Vec<u8> = Vec::new();
+
+        while exclusions.len() < num_seq_added as usize && lastlen >= 10 && passno < maxpasses{
+            self.consensus();
+        }
+    }
     pub fn consensus(&self) {
         //topologically sort the nodes
         let mut topo = Topo::new(&self.graph);
@@ -537,6 +557,9 @@ impl<F: MatchFunc> Poa<F> {
         println!("{:?}", nextInPath);
         //iterate thorugh the nodes in revere
         println!("Node reverse topological order");
+        for node in &topoIndices{
+            self.display_corrosponding_character(&self.graph.raw_nodes()[node.index()].weight);
+        }
         for node in topoIndices{
             print!("start node: {:?}", self.graph.raw_nodes()[node.index()].weight);
             let mut bestWeightScoreEdge: (i32, f64, usize) = (-1 , -1.0, 99);
