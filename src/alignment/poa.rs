@@ -238,7 +238,7 @@ pub struct Aligner<F: MatchFunc> {
 impl<F: MatchFunc> Aligner<F> {
     /// Create new instance.
     pub fn new(scoring: Scoring<F>, reference: TextSlice) -> Self {
-        //println!("POA Aligner constructor run"); //added
+        println!("POA Aligner constructor run"); //added
         //println!("Reference to vector: {:?}", reference.to_vec()); //added
         Aligner {
             traceback: Traceback::new(),
@@ -451,7 +451,7 @@ impl<F: MatchFunc> Poa<F> {
                         prev = new_node;
                     }
                     else {
-                        //println!("Start node match with sequence, do nothing");
+                        println!("Start node match with sequence, do nothing");
                         if start_seq_unmatched == true {
                             //println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
                             self.graph.add_edge(prev, node, 1);
