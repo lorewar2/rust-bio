@@ -1,47 +1,110 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
 use petgraph::dot::{Dot, Config};
+use std::{
+    fs::File,
+    io::{prelude::*, BufReader},
+    path::Path,
+};
+
 
 const GAP_OPEN: i32 = -2;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 1;
 const MISMATCH: i32 = -1;
-fn main() {
-    let test = vec![
-        "AAAATGCC",
-        "AAAAT",
-        "AAAAT"
-    ];
-    let example4 = vec![
-        "TGTACNTGTTTGTGAGGCTA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTTATGTACTTGTTTGTGAGGCAA",
-        "AAGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGGTTTGTGNAGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTNAGGCAA",
-        "AGTTCCTGCTGCGTTTGCT",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTT",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTNCTGNTGNGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "GTACNTGTTTGTGAGGCTA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTCCTGCTGCTTTTGCTGGACTGATGTACTTGATTGTGAGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTCCTGCTGCGCTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGCGGCAA",
-        "AGTCCTGCGCGTTTGCGGACGGATGTACTTGTTGTGAGGCAA",
-        "GCAA",
-        "GGCAA",
-        "CTGATGTACTTGTTGTGAGGGCAA",
-        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA",
-        "GTTCTGCCTGCGTTTGCTGAACTGATGTACTTGTTAGTAAGCAA",
-        "CGTTACTGCGGGGTTTGCTGGACTCATGACTTTGTTNGTAGGCAA",
-    ];
-    run(example4);
+
+fn get_fasta_sequences(filename: impl AsRef<Path>) -> Vec<String> {
+    let mut tempvec: Vec<String> = vec![];
+    let mut seqvec: Vec<String> = vec![];
+    let file = File::open(filename).expect("no such file");
+    let buf = BufReader::new(file);
+    let lines: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
+    //get the indices of >
+    let mut indices: Vec<usize> = vec![];
+    let mut index = 0;
+    for line in &lines{
+        if line.as_bytes()[0] as char == '>'{
+            //println!("{:?}", line);
+            indices.push(index);
+        }
+        index += 1;
+    }
+    //join the lines between >s and remove > lines
+    let mut prev_index: usize = 0;
+    for index in indices {
+        if prev_index != 0 && index != 0{
+            tempvec.push(lines[(prev_index + 1)..index].join(""));
+        }
+        prev_index = index;
+    }
+    //reverse complement every other line
+    let mut index = 0;
+    for seq in &tempvec{
+        if index % 2 != 0 {
+            let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+            seqvec.push(tempseq.iter().cloned().collect::<String>());
+        }
+        else {
+            seqvec.push((*seq.clone()).to_string());
+        }
+        index += 1;
+    }
+    //remove the last line
+    seqvec.pop();
+
+    seqvec
 }
 
-fn get_consensus_score(seqvec : &Vec<&str>, consensus: &Vec<u8>) -> i32{
+fn main() {
+    let seqvec = get_fasta_sequences("./data/65874.fasta");
+
+    let test = vec![
+        "AAAATGCC".to_string(),
+        "AAAAT".to_string(),
+        "AAAAT".to_string(),
+    ];
+    let example4 = vec![
+        "TGTACNTGTTTGTGAGGCTA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTTATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AAGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGGTTTGTGNAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTNAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCT".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTT".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTNCTGNTGNGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "GTACNTGTTTGTGAGGCTA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCTTTTGCTGGACTGATGTACTTGATTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCGCTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGCGGCAA".to_string(),
+        "AGTCCTGCGCGTTTGCGGACGGATGTACTTGTTGTGAGGCAA".to_string(),
+        "GCAA".to_string(),
+        "GGCAA".to_string(),
+        "CTGATGTACTTGTTGTGAGGGCAA".to_string(),
+        "AGTTCCTGCTGCGTTTGCTGGACTGATGTACTTGTTTGTGAGGCAA".to_string(),
+        "GTTCTGCCTGCGTTTGCTGAACTGATGTACTTGTTAGTAAGCAA".to_string(),
+        "CGTTACTGCGGGGTTTGCTGGACTCATGACTTTGTTNGTAGGCAA".to_string(),
+    ];
+    run(seqvec);
+}
+
+fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
     let mut consensus_score = 0;
     for seq in seqvec{
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
@@ -64,9 +127,6 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
         let mut homopolymer_index = alignment.ystart;
         //println!("start index consensus {}", consensus_index);
         //println!("start index sequence {}", homopolymer_index);
-        for i in &homopolymer_consensus_freq{
-            //println!("count {}", i);
-        }
         for op in alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
@@ -107,7 +167,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score)
 }
 
-fn run(seqvec : Vec<&str>) {
+fn run(seqvec: Vec<String>) {
     ////////////////////////
     //normal poa alignment//
     ////////////////////////
