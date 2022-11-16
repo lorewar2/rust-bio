@@ -451,7 +451,7 @@ impl<F: MatchFunc> Poa<F> {
                         prev = new_node;
                     }
                     else {
-                        println!("Start node match with sequence, do nothing");
+                        //println!("Start node match with sequence, do nothing");
                         if start_seq_unmatched == true {
                             //println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
                             self.graph.add_edge(prev, node, 1);
