@@ -63,7 +63,7 @@ fn run(seqvec: Vec<String>) {
             aligner.global(&homopolymer_seq.bases).add_to_graph(i);
         }
         i += 1;
-        println!("Sequence {} processed", i);
+        println!("Sequence {} processed", seqnum);
     }
     let homopolymer_consensus = aligner.poa.consensus();
 

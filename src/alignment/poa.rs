@@ -539,7 +539,7 @@ impl<F: MatchFunc> Poa<F> {
         //iterate thorugh the nodes in revere
         for node in topo_indices{
             //print!("\nstart node: {:?}", self.graph.raw_nodes()[node.index()].weight);
-            let mut best_weight_score_edge: (i32, f64, usize) = (-1 , -1.0, 99);
+            let mut best_weight_score_edge: (i32, f64, usize) = (-1 , -1.0, 123456789);
             //let mut outEdges = self.graph.neighbors_directed(node, Outgoing).detach();
             let mut neighbour_nodes = self.graph.neighbors_directed(node, Outgoing);
             while let Some(neighbour_node) = neighbour_nodes.next() {
@@ -567,7 +567,7 @@ impl<F: MatchFunc> Poa<F> {
         let mut pos = scores.iter().position(|&r| r == max_score).unwrap();
         //using traceback print out the max sequence
         //println!("Consensus");
-        while pos != 99{
+        while pos != 123456789 {
             output.push(self.graph.raw_nodes()[pos].weight);
             pos = next_in_path[pos];
         }
