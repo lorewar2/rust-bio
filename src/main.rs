@@ -7,6 +7,8 @@ use std::{
     path::Path,
 };
 use chrono;
+use rand::Rng;
+
 
 
 const GAP_OPEN: i32 = -2;
@@ -16,7 +18,9 @@ const MISMATCH: i32 = -1;
 const FILENAME: &str = "./data/65874.fasta";
 
 fn main() {
-    let seqvec = get_fasta_sequences_from_file(FILENAME);
+    //let seqvec = get_fasta_sequences_from_file(FILENAME);
+    let seqvec = get_random_sequences_from_generator(100, 10);
+    println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
     //let abpoa_consensus = get_consensus_from_file("./data/cons.fa");
@@ -24,6 +28,7 @@ fn main() {
     //println!("abpoa score: {:?}", abpoa_consensus_score);
     //write_filtered_data_fasta_file("./results/filtered_data.fa", &seqvec);
 }
+
 
 fn run(seqvec: Vec<String>) {
     ////////////////////////
@@ -95,6 +100,73 @@ fn run(seqvec: Vec<String>) {
     //write results to file
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
     write_consensus_fasta_file("./results/consensus.fa", &normal_consensus, &homopolymer_consensus, &expanded_consensus);
+
+}
+
+fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i32) -> Vec<String> {
+    //vector to save all the sequences 
+    let mut randomvec: Vec<String> = vec![];
+    //generate the first sequence of random bases of length sequence_length
+    let mut firstseq: Vec<char> = vec![];
+    for _ in 0..sequence_length{
+        firstseq.push(match rand::thread_rng().gen_range(0..4) {
+            0 => 'A',
+            1 => 'C',
+            2 => 'G',
+            3 => 'T',
+            _ => 'X'
+        });
+    }
+    randomvec.push(firstseq.iter().collect::<String>());
+    //loop for 10 
+    for _ in 0..num_of_sequences{
+        //clone the sequence
+        let mut mutseq = firstseq.clone();
+        //mutate the all the bases with 0.05 chance
+        for i in 0..mutseq.len() {
+            match rand::thread_rng().gen_range(0..20){
+                0 => {
+                    mutseq[i] = match rand::thread_rng().gen_range(0..4){
+                        0 => 'A',
+                        1 => 'C',
+                        2 => 'G',
+                        3 => 'T',
+                        _ => 'X'
+                    }
+                },
+                _ => {}
+            }
+        }
+        //put indels at location with chance 0.1 
+        for i in 0..mutseq.len() {
+            let mean_value: f64 = 1.5;
+            //get length of the indel geometric distributed mean value 1.5
+            let indel_length: usize  = ((1.0 - rand::thread_rng().gen::<f64>()).ln() / (1.00 - (1.00 / mean_value) as f64).ln()).ceil() as usize;
+            match rand::thread_rng().gen_range(0..20){
+                //insertion of elements
+                0 => {
+                    if i + indel_length < mutseq.len(){
+                        for _ in 0..indel_length{
+                            mutseq.insert(i + 1, mutseq[i]);
+                        }
+                    }
+                },
+                //deletion of elements
+                1 => {
+                    if i + indel_length < mutseq.len(){
+                        for _ in 0..indel_length{
+                            mutseq.remove(i);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        println!("{:?}", mutseq.iter().collect::<String>());
+        //insert to vector
+        randomvec.push(mutseq.iter().collect::<String>());
+    }
+    randomvec
 
 }
 
