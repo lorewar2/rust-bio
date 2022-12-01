@@ -81,7 +81,7 @@ impl Traceback {
         let matrix = vec![
             vec![
                 TracebackCell {
-                    score: 0,
+                    score: -200,
                     op: AlignmentOperation::Match(None)
                 };
                 n + 1
@@ -352,6 +352,7 @@ impl<F: MatchFunc> BandedPoa<F> {
     /// * `query` - the query TextSlice to align against the internal graph member
     pub fn global(&mut self, query: TextSlice) -> Traceback {
         assert!(self.graph.node_count() != 0);
+        let band_length = 25;
         //get the consensus with corrosponding node numbers
         let mut test = vec![];
         (self.consensus, test) = self.consensus();
@@ -380,10 +381,25 @@ impl<F: MatchFunc> BandedPoa<F> {
                 op: AlignmentOperation::Match(None),
             },
         );
-        // construct the score matrix (O(n^2) space)
-        //println!("Topological sort of reference graph!!"); //added
+        //calculate all the node position in matches
         let mut topo = Topo::new(&self.graph);
+        let mut node_pos_vec = vec![];
         while let Some(node) = topo.next(&self.graph) {
+            let mut tempval = -1;
+            for i in 0..matches.len(){
+                if matches[i].0 == node.index() as u32 {
+                    tempval = i as i32;
+                }
+            }
+            node_pos_vec.push(tempval);
+        }
+        // construct the score matrix (O(n^2) space)
+        let mut topo = Topo::new(&self.graph);
+        let mut i = 0;
+        while let Some(node) = topo.next(&self.graph) {
+            //find the node in matches
+            let mut node_position_in_matches = node_pos_vec[i];
+            i += 1;
             // reference base and index
             let r = self.graph.raw_nodes()[node.index()].weight; // reference base at previous index
             //println!("Previous Index Reference Node being processed index:{} base:{}", node.index(), r); //added
@@ -392,9 +408,33 @@ impl<F: MatchFunc> BandedPoa<F> {
             // iterate over the predecessors of this node
             let prevs: Vec<NodeIndex<usize>> =
                 self.graph.neighbors_directed(node, Incoming).collect();
+            if node_position_in_matches == -1 {
+                'outer: for prev in &prevs {
+                    for i in 0..matches.len(){
+                        if matches[i].0 == prev.index() as u32 {
+                            node_position_in_matches = i as i32;
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            
             //println!("Nodes with directed edges to current node:{:?}", prevs); //added
             // query base and its index in the DAG (traceback matrix rows)
             for (j_p, q) in query.iter().enumerate() {
+                if node_position_in_matches != -1 && matches[node_position_in_matches as usize].1 as usize > band_length {
+                    if j_p > matches[node_position_in_matches as usize].1 as usize + band_length{
+                        break;
+                    }
+                    else if j_p  < matches[node_position_in_matches as usize].1 as usize - band_length {
+                        continue;
+                    }
+                }
+                else if node_position_in_matches == -1 {
+                    if j_p > band_length{
+                        break;
+                    }
+                }
                 let j = j_p + 1;
                 // match and deletion scores for the first reference base
                 let max_cell = if prevs.is_empty() {

@@ -62,13 +62,13 @@ fn run(seqvec: Vec<String>) {
     }
 
     let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
-    let mut i = 0;
+    seqnum = 0;
     let mut aligner = Aligner::new(scoring, &homopolymer_vec[0].bases);
     for homopolymer_seq in &homopolymer_vec{
-        if i != 0 {
-            aligner.global(&homopolymer_seq.bases).add_to_graph(i);
+        if seqnum != 0 {
+            aligner.global(&homopolymer_seq.bases).add_to_graph(seqnum);
         }
-        i += 1;
+        seqnum += 1;
         println!("Sequence {} processed", seqnum);
     }
     let homopolymer_consensus;
@@ -120,7 +120,7 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
             _ => 'X'
         });
     }
-    randomvec.push(firstseq.iter().collect::<String>());
+    //randomvec.push(firstseq.iter().collect::<String>());
     //loop for 10 
     for _ in 0..num_of_sequences{
         //clone the sequence
