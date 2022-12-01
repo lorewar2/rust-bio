@@ -8,6 +8,7 @@
 pub mod distance;
 pub mod pairwise;
 pub mod poa;
+pub mod bandedpoa; //added
 pub mod sparse;
 
 // Re-export the alignment types.

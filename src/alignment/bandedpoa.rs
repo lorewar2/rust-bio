@@ -8,7 +8,7 @@ use crate::alignment::pairwise::{MatchFunc, Scoring};
 use petgraph::Direction::Outgoing;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Topo;
-
+use crate::alignment::sparse;
 use petgraph::{Directed, Graph, Incoming};
 
 pub const MIN_SCORE: i32 = -858_993_459; // negative infinity; see alignment/pairwise/mod.rs
@@ -229,14 +229,10 @@ impl Traceback {
 /// A partially ordered aligner builder
 ///
 /// Uses consuming builder pattern for constructing partial order alignments with method chaining
-pub struct BandedAligner<F: MatchFunc> {
+pub struct Aligner<F: MatchFunc> {
     traceback: Traceback,
     query: Vec<u8>,
-    pub poa: Poa<F>,
-    consensus: Vec<u8>,
-    band: Band,
-    k: usize,
-    w: usize,
+    pub bandedpoa: BandedPoa<F>,
 }
 
 impl<F: MatchFunc> Aligner<F> {
@@ -247,15 +243,19 @@ impl<F: MatchFunc> Aligner<F> {
         Aligner {
             traceback: Traceback::new(),
             query: reference.to_vec(),
-            poa: Poa::from_string(scoring, reference),
+            bandedpoa: BandedPoa::from_string(scoring, reference),
         }
     }
 
     /// Add the alignment of the last query to the graph.
     pub fn add_to_graph(&mut self, seq_number: u8) -> &mut Self {
+        //basic
+        //get the consensus of the reference graph (bandedpoa)
+
+        //run the reference graph with seq++ algo get the bone
+
         let alignment = self.traceback.alignment();
-        self.poa.add_alignment(&alignment, &self.query, seq_number);
-        //println!("{:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeNoLabel])); //added
+        self.bandedpoa.add_alignment(&alignment, &self.query, seq_number);
         self
     }
 
@@ -267,7 +267,7 @@ impl<F: MatchFunc> Aligner<F> {
     /// Globally align a given query against the graph.
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
-        self.traceback = self.poa.global(query);
+        self.traceback = self.bandedpoa.global(query);
         //self.traceback.print(&self.poa.graph, query);
         //self.traceback.print_operation(&self.poa.graph, query);
         //println!(" ");
@@ -295,7 +295,7 @@ impl<F: MatchFunc> Aligner<F> {
     /// Return alignment graph.
     pub fn graph(&self) -> &POAGraph {
         //println!("Reference Graph: {:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeIndexLabel])); //added
-        &self.poa.graph
+        &self.bandedpoa.graph
     }
 }
 
@@ -303,14 +303,14 @@ impl<F: MatchFunc> Aligner<F> {
 ///
 /// A directed acyclic graph datastructure that represents the topology of a
 /// traceback matrix.
-pub struct Poa<F: MatchFunc> {
+pub struct BandedPoa<F: MatchFunc> {
     scoring: Scoring<F>,
     pub graph: POAGraph,
     pub node_seq_tracker: Vec<Vec<u8>>,
     pub consensus: Vec<u8>,
 }
 
-impl<F: MatchFunc> Poa<F> {
+impl<F: MatchFunc> BandedPoa<F> {
     /// Create a new aligner instance from the directed acyclic graph of another.
     ///
     /// # Arguments
@@ -318,7 +318,7 @@ impl<F: MatchFunc> Poa<F> {
     /// * `scoring` - the score struct
     /// * `poa` - the partially ordered reference alignment
     pub fn new(scoring: Scoring<F>, graph: POAGraph) -> Self {
-        Poa { scoring, graph, node_seq_tracker: Vec::new() }
+        BandedPoa { scoring, graph, node_seq_tracker: Vec::new(), consensus: Vec::new() }
     }
 
     /// Create a new POA graph from an initial reference sequence and alignment penalties.
@@ -341,16 +341,30 @@ impl<F: MatchFunc> Poa<F> {
             graph.add_edge(prev, node, 1);
             prev = node;
         }
+        let consensus = seq.to_vec();
         //println!("Reference Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel])); //added
-        Poa { scoring, graph, node_seq_tracker }
+        BandedPoa { scoring, graph, node_seq_tracker, consensus }
     }
 
     /// A global Needleman-Wunsch aligner on partially ordered graphs.
     ///
     /// # Arguments
     /// * `query` - the query TextSlice to align against the internal graph member
-    pub fn global(&self, query: TextSlice) -> Traceback {
+    pub fn global(&mut self, query: TextSlice) -> Traceback {
         assert!(self.graph.node_count() != 0);
+        //get the consensus with corrosponding node numbers
+        let mut test = vec![];
+        (self.consensus, test) = self.consensus();
+        //println!("{:?}", self.consensus);
+        //println!("{:?}", test);
+        //run the consensus on seq++
+        let mut matches = sparse::find_kmer_matches(&self.consensus, query, 5);
+        println!("{:?}", matches);
+        for i in 0..matches.len(){
+            matches[i] = (test[matches[i].0 as usize] as u32, matches[i].1);
+        }
+
+        println!("{:?}", matches);
         // dimensions of the traceback matrix
         let (m, n) = (self.graph.node_count(), query.len());
         let mut traceback = Traceback::with_capacity(m, n);
@@ -425,7 +439,6 @@ impl<F: MatchFunc> Poa<F> {
                 traceback.set(i, j, score);
             }
         }
-
         traceback
     }
     
@@ -524,8 +537,9 @@ impl<F: MatchFunc> Poa<F> {
             }
         }
     }
-    pub fn consensus(&self) -> Vec<u8> {
+    pub fn consensus(&self) -> (Vec<u8>, Vec<u8>) {
         let mut output: Vec<u8> = vec![];
+        let mut topopos: Vec<u8> = vec![];
         let mut topo = Topo::new(&self.graph);
         let mut topo_indices = Vec::new();
         let mut max_index = 0;
@@ -573,369 +587,10 @@ impl<F: MatchFunc> Poa<F> {
         //using traceback print out the max sequence
         //println!("Consensus");
         while pos != 123456789 {
+            topopos.push(pos as u8);
             output.push(self.graph.raw_nodes()[pos].weight);
             pos = next_in_path[pos];
         }
-        output
-    }
-}
-
-impl Band {
-    // Create new Band instance with given size
-    //
-    // # Arguments
-    //
-    // * `m` - the expected size of x
-    // * `n` - the expected size of y
-    //
-    fn new(m: usize, n: usize) -> Self {
-        Band {
-            rows: m + 1,
-            cols: n + 1,
-            ranges: vec![m + 1..0; n + 1],
-        }
-    }
-
-    // Add cells around a kmer of length 'k', starting at 'start', which are within a
-    // distance of 'w' in x or y directions to the band.
-    fn add_kmer(&mut self, start: (u32, u32), k: usize, w: usize) {
-        let (r, c) = (start.0 as usize, start.1 as usize);
-        // println!("{} {} {}", r, k, self.rows);
-        debug_assert!(r + k <= self.rows);
-        debug_assert!(c + k <= self.cols);
-
-        if k == 0 {
-            return;
-        }
-
-        let i = r.saturating_sub(w);
-        for j in c.saturating_sub(w)..min(c + w + 1, self.cols) {
-            self.ranges[j].start = min(self.ranges[j].start, i);
-        }
-
-        let mut i = r.saturating_sub(w);
-        for j in min(c + w, self.cols)..min(c + k + w, self.cols) {
-            self.ranges[j].start = min(self.ranges[j].start, i);
-            i += 1;
-        }
-
-        let mut i = r + w + k;
-        let mut j = (c + k - 1).saturating_sub(w);
-        loop {
-            if j <= c.saturating_sub(w) {
-                break;
-            }
-            j -= 1;
-            i -= 1;
-            self.ranges[j].end = max(self.ranges[j].end, min(i, self.rows));
-        }
-
-        let i = min(r + w + k, self.rows);
-        for j in (c + k - 1).saturating_sub(w)..min(c + k + w, self.cols) {
-            self.ranges[j].end = max(self.ranges[j].end, i);
-        }
-    }
-
-    // Add cells around a specific position to the band. An cell which is within 'w' distance
-    // in x or y directions are added
-    fn add_entry(&mut self, pos: (u32, u32), w: usize) {
-        let (r, c) = (pos.0 as usize, pos.1 as usize);
-
-        let istart = r.saturating_sub(w);
-        let iend = min(r + w + 1, self.rows);
-        for j in c.saturating_sub(w)..min(c + w + 1, self.cols) {
-            self.ranges[j].start = min(self.ranges[j].start, istart);
-            self.ranges[j].end = max(self.ranges[j].end, iend);
-        }
-    }
-
-    // Each gap generates a line from the start to end.
-    fn add_gap(&mut self, start: (u32, u32), end: (u32, u32), w: usize) {
-        let nrows = end.0 - start.0;
-        let ncols = end.1 - start.1;
-        if nrows > ncols {
-            for r in start.0..end.0 {
-                let c = start.1 + (end.1 - start.1) * (r - start.0) / (end.0 - start.0);
-                self.add_entry((r, c), w);
-            }
-        } else {
-            for c in start.1..end.1 {
-                let r = start.0 + (end.0 - start.0) * (c - start.1) / (end.1 - start.1);
-                self.add_entry((r, c), w);
-            }
-        }
-    }
-
-    // The band needs to start either at (0,0) or at a point that is zero score from (0,0).
-    // This naturally sets the start positions correctly for global, semiglobal and local
-    // modes. Similarly the band has to either end at (m,n) or at a point from which there is
-    // a zero score path to (m,n).
-    //
-    // At the minimum, irrespective of the score (0,0)->start or end->(m,n), we extend the band
-    // diagonally for a length "lazy_extend"(2k) or when it hits the corner, whichever happens first
-    //
-    // start - the index of the first matching kmer in LCSk++
-    // end - the index of the last matching kmer in LCSk++
-    //
-    fn set_boundaries<F: MatchFunc>(
-        &mut self,
-        start: (u32, u32),
-        end: (u32, u32),
-        k: usize,
-        w: usize,
-        scoring: &Scoring<F>,
-    ) {
-        let lazy_extend: usize = 2 * k;
-
-        // -------------- START --------------
-        // Nothing to do if the start is already at (0,0)
-        let (r, c) = (start.0 as usize, start.1 as usize);
-        if !(r == 0usize && c == 0usize) {
-            let mut score_to_start = if r > 0 { scoring.xclip_prefix } else { 0i32 };
-            score_to_start += if c > 0 { scoring.yclip_prefix } else { 0i32 };
-
-            if score_to_start == 0 {
-                // Just do a "lazy_extend"
-                // First diagonally
-                let d = min(lazy_extend, min(r, c));
-                self.add_kmer(((r - d) as u32, (c - d) as u32), d, w);
-
-                // If we hit one of the edges before completing lazy_extend
-                self.add_gap(
-                    (
-                        r.saturating_sub(lazy_extend) as u32,
-                        c.saturating_sub(lazy_extend) as u32,
-                    ),
-                    ((r - d) as u32, (c - d) as u32),
-                    w,
-                );
-            } else {
-                // we need to find a zero cost cell
-
-                // First try the diagonal
-                let diagonal_score = match r.cmp(&c) {
-                    // We will hit (r-c, 0)
-                    Ordering::Greater => scoring.xclip_prefix,
-                    // We will hit (0, c-r)
-                    Ordering::Less => scoring.yclip_prefix,
-                    Ordering::Equal => 0,
-                };
-
-                if diagonal_score == 0 {
-                    let d = min(r, c);
-                    self.add_kmer(((r - d) as u32, (c - d) as u32), d, w);
-                    // Make sure we do at least "lazy_extend" extension
-                    let start = (
-                        r.saturating_sub(lazy_extend) as u32,
-                        c.saturating_sub(lazy_extend) as u32,
-                    );
-                    let end = ((r - d) as u32, (c - d) as u32);
-                    if (start.0 <= end.0) && (start.1 <= end.1) {
-                        self.add_gap(start, end, w);
-                    }
-                } else {
-                    // Band to origin
-                    self.add_gap((0u32, 0u32), start, w);
-                }
-            }
-        }
-
-        // -------------- END --------------
-        // Nothing to do if the last kmer ends at (m, n)
-        let (r, c) = (end.0 as usize + k, end.1 as usize + k);
-        debug_assert!(r <= self.rows);
-        debug_assert!(c <= self.cols);
-        if !(r == self.rows && c == self.cols) {
-            let mut score_from_end = if r == self.rows {
-                0
-            } else {
-                scoring.xclip_suffix
-            };
-            score_from_end += if c == self.cols {
-                0
-            } else {
-                scoring.yclip_suffix
-            };
-
-            if score_from_end == 0 {
-                // Just a lazy_extend
-                let d = min(lazy_extend, min(self.rows - r, self.cols - c));
-                self.add_kmer((r as u32, c as u32), d, w);
-
-                let r1 = min(self.rows, r + d) - 1;
-                let c1 = min(self.cols, c + d) - 1;
-                let r2 = min(self.rows, r + lazy_extend);
-                let c2 = min(self.cols, c + lazy_extend);
-                if (r1 <= r2) && (c1 <= c2) {
-                    self.add_gap((r1 as u32, c1 as u32), (r2 as u32, c2 as u32), w);
-                }
-            } else {
-                // we need to find a zero cost cell
-
-                // First try the diagonal
-                let dr = self.rows - r;
-                let dc = self.cols - c;
-                let diagonal_score = match dr.cmp(&dc) {
-                    // We will hit (r+dc, self.cols)
-                    Ordering::Greater => scoring.xclip_suffix,
-                    // We will hit (self.rows, c+dr)
-                    Ordering::Less => scoring.yclip_suffix,
-                    // We will hit the corner
-                    Ordering::Equal => 0,
-                };
-
-                if diagonal_score == 0 {
-                    let d = min(dr, dc);
-                    self.add_kmer((r as u32, c as u32), d, w);
-                    // Make sure we do at least "lazy_extend" extension
-                    let r1 = min(self.rows, r + d) - 1;
-                    let c1 = min(self.cols, c + d) - 1;
-                    let r2 = min(self.rows, r + lazy_extend);
-                    let c2 = min(self.cols, c + lazy_extend);
-                    if (r1 <= r2) && (c1 <= c2) {
-                        self.add_gap((r1 as u32, c1 as u32), (r2 as u32, c2 as u32), w);
-                    }
-                } else {
-                    // Band to lower right corner
-                    let rows = self.rows as u32;
-                    let cols = self.cols as u32;
-                    self.add_gap((r as u32, c as u32), (rows as u32, cols as u32), w);
-                }
-            }
-        }
-    }
-
-    fn create<F: MatchFunc>(
-        x: TextSlice<'_>,
-        y: TextSlice<'_>,
-        k: usize,
-        w: usize,
-        scoring: &Scoring<F>,
-    ) -> Band {
-        let matches = sparse::find_kmer_matches(x, y, k);
-        Band::create_with_matches(x, y, k, w, scoring, &matches)
-    }
-
-    fn create_with_prehash<F: MatchFunc>(
-        x: TextSlice<'_>,
-        y: TextSlice<'_>,
-        k: usize,
-        w: usize,
-        scoring: &Scoring<F>,
-        y_kmer_hash: &HashMapFx<&[u8], Vec<u32>>,
-    ) -> Band {
-        let matches = sparse::find_kmer_matches_seq2_hashed(x, y_kmer_hash, k);
-        Band::create_with_matches(x, y, k, w, scoring, &matches)
-    }
-
-    fn create_with_matches<F: MatchFunc>(
-        x: TextSlice<'_>,
-        y: TextSlice<'_>,
-        k: usize,
-        w: usize,
-        scoring: &Scoring<F>,
-        matches: &[(u32, u32)],
-    ) -> Band {
-        if matches.is_empty() {
-            let mut band = Band::new(x.len(), y.len());
-            band.full_matrix();
-            return band;
-        }
-
-        let match_score = match scoring.match_scores {
-            Some((m, _)) => m,
-            None => DEFAULT_MATCH_SCORE,
-        };
-
-        let res = sparse::sdpkpp(
-            matches,
-            k,
-            match_score as u32,
-            scoring.gap_open,
-            scoring.gap_extend,
-        );
-        Band::create_from_match_path(x, y, k, w, scoring, &res.path, matches)
-    }
-
-    fn create_from_match_path<F: MatchFunc>(
-        x: TextSlice<'_>,
-        y: TextSlice<'_>,
-        k: usize,
-        w: usize,
-        scoring: &Scoring<F>,
-        path: &[usize],
-        matches: &[(u32, u32)],
-    ) -> Band {
-        let mut band = Band::new(x.len(), y.len());
-
-        if matches.is_empty() {
-            band.full_matrix();
-            return band;
-        }
-
-        let ps = path[0];
-        let pe = path[path.len() - 1];
-
-        // Set the boundaries
-        band.set_boundaries(matches[ps], matches[pe], k, w, scoring);
-        let mut prev: Option<(u32, u32)> = None;
-
-        for &idx in path {
-            let curr = matches[idx];
-            if curr.continues(prev) {
-                let p = prev.unwrap();
-                band.add_entry((p.0 + k as u32, p.1 + k as u32), w);
-            } else {
-                if let Some(p) = prev {
-                    band.add_gap((p.0 + (k - 1) as u32, p.1 + (k - 1) as u32), curr, w)
-                }
-                band.add_kmer(curr, k, w);
-            }
-            prev = Some(curr);
-        }
-        band
-    }
-
-    fn full_matrix(&mut self) {
-        self.ranges.clear();
-        self.ranges.resize(self.cols, 0..self.rows);
-    }
-
-    fn num_cells(&self) -> usize {
-        let mut banded_cells = 0;
-        for j in 0..self.ranges.len() {
-            banded_cells += self.ranges[j].end.saturating_sub(self.ranges[j].start);
-        }
-        banded_cells
-    }
-
-    #[allow(dead_code)]
-    fn visualize(&self) {
-        let mut view = vec!['.'; self.rows * self.cols];
-        let index = |i, j| i * self.cols + j;
-        for j in 0..self.ranges.len() {
-            let range = &self.ranges[j];
-            for i in range.start..range.end {
-                view[index(i, j)] = 'x';
-            }
-        }
-
-        for i in 0..self.rows {
-            for j in 0..self.cols {
-                print!("{}", view[index(i, j)]);
-            }
-            println!();
-        }
-    }
-
-    #[allow(dead_code)]
-    fn stat(&self) {
-        let total_cells = self.rows * self.cols;
-        let banded_cells = self.num_cells();
-        let percent_cells = (banded_cells as f64) / (total_cells as f64) * 100.0;
-        println!(
-            " {} of {} cells are in the band ({2:.2}%)",
-            banded_cells, total_cells, percent_cells
-        );
+        (output, topopos)
     }
 }

@@ -1,5 +1,5 @@
 use bio::alignment::pairwise::Scoring;
-use bio::alignment::{poa::*, TextSlice};
+use bio::alignment::{bandedpoa::*, TextSlice}; //use bio::alignment::{poa::*, TextSlice};
 use std::{
     fs::File,
     fs::OpenOptions,
@@ -7,15 +7,15 @@ use std::{
     path::Path,
 };
 use chrono;
-use rand::Rng;
+use rand::{Rng,SeedableRng};
+use rand::rngs::StdRng;
 
-
-
-const GAP_OPEN: i32 = -2;
+const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
-const MATCH: i32 = 1;
-const MISMATCH: i32 = -1;
+const MATCH: i32 = 2;
+const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/65874.fasta";
+const SEED: u64 = 1337;
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
@@ -45,7 +45,8 @@ fn run(seqvec: Vec<String>) {
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
     }
-    let normal_consensus = aligner.poa.consensus();
+    let normal_consensus;
+    (normal_consensus, _) = aligner.bandedpoa.consensus(); //just poa
 
     //get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
@@ -70,7 +71,8 @@ fn run(seqvec: Vec<String>) {
         i += 1;
         println!("Sequence {} processed", seqnum);
     }
-    let homopolymer_consensus = aligner.poa.consensus();
+    let homopolymer_consensus;
+    (homopolymer_consensus, _) = aligner.bandedpoa.consensus(); //poa
 
     //use homopolymer compressions sequences to make expanded consensus
     let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
@@ -104,12 +106,13 @@ fn run(seqvec: Vec<String>) {
 }
 
 fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i32) -> Vec<String> {
+    let mut rng = StdRng::seed_from_u64(SEED);
     //vector to save all the sequences 
     let mut randomvec: Vec<String> = vec![];
     //generate the first sequence of random bases of length sequence_length
     let mut firstseq: Vec<char> = vec![];
     for _ in 0..sequence_length{
-        firstseq.push(match rand::thread_rng().gen_range(0..4) {
+        firstseq.push(match rng.gen_range(0..4) {
             0 => 'A',
             1 => 'C',
             2 => 'G',
@@ -124,9 +127,9 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
         let mut mutseq = firstseq.clone();
         //mutate the all the bases with 0.05 chance
         for i in 0..mutseq.len() {
-            match rand::thread_rng().gen_range(0..20){
+            match rng.gen_range(0..20){
                 0 => {
-                    mutseq[i] = match rand::thread_rng().gen_range(0..4){
+                    mutseq[i] = match rng.gen_range(0..4){
                         0 => 'A',
                         1 => 'C',
                         2 => 'G',
@@ -141,8 +144,8 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
         for i in 0..mutseq.len() {
             let mean_value: f64 = 1.5;
             //get length of the indel geometric distributed mean value 1.5
-            let indel_length: usize  = ((1.0 - rand::thread_rng().gen::<f64>()).ln() / (1.00 - (1.00 / mean_value) as f64).ln()).ceil() as usize;
-            match rand::thread_rng().gen_range(0..20){
+            let indel_length: usize  = ((1.0 - rng.gen::<f64>()).ln() / (1.00 - (1.00 / mean_value) as f64).ln()).ceil() as usize;
+            match rng.gen_range(0..20){
                 //insertion of elements
                 0 => {
                     if i + indel_length < mutseq.len(){
