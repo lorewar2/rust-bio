@@ -14,6 +14,9 @@ use petgraph::{Directed, Graph, Incoming};
 pub const MIN_SCORE: i32 = -858_993_459; // negative infinity; see alignment/pairwise/mod.rs
 pub type POAGraph = Graph<u8, i32, Directed, usize>;
 
+const BANDLENGTH: usize = 10;
+const KMER: usize = 10;
+
 // Unlike with a total order we may have arbitrary successors in the
 // traceback matrix. I have not yet figured out what the best level of
 // detail to store is, so Match and Del operations remember In and Out
@@ -232,7 +235,7 @@ impl Traceback {
 pub struct Aligner<F: MatchFunc> {
     traceback: Traceback,
     query: Vec<u8>,
-    pub bandedpoa: BandedPoa<F>,
+    pub poa: Poa<F>,
 }
 
 impl<F: MatchFunc> Aligner<F> {
@@ -243,19 +246,16 @@ impl<F: MatchFunc> Aligner<F> {
         Aligner {
             traceback: Traceback::new(),
             query: reference.to_vec(),
-            bandedpoa: BandedPoa::from_string(scoring, reference),
+            poa: Poa::from_string(scoring, reference),
         }
     }
 
     /// Add the alignment of the last query to the graph.
     pub fn add_to_graph(&mut self, seq_number: u8) -> &mut Self {
-        //basic
-        //get the consensus of the reference graph (bandedpoa)
-
-        //run the reference graph with seq++ algo get the bone
+        //ba
 
         let alignment = self.traceback.alignment();
-        self.bandedpoa.add_alignment(&alignment, &self.query, seq_number);
+        self.poa.add_alignment(&alignment, &self.query, seq_number);
         self
     }
 
@@ -267,7 +267,7 @@ impl<F: MatchFunc> Aligner<F> {
     /// Globally align a given query against the graph.
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
-        self.traceback = self.bandedpoa.global(query);
+        self.traceback = self.poa.global(query);
         //self.traceback.print(&self.poa.graph, query);
         //self.traceback.print_operation(&self.poa.graph, query);
         //println!(" ");
@@ -295,7 +295,7 @@ impl<F: MatchFunc> Aligner<F> {
     /// Return alignment graph.
     pub fn graph(&self) -> &POAGraph {
         //println!("Reference Graph: {:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeIndexLabel])); //added
-        &self.bandedpoa.graph
+        &self.poa.graph
     }
 }
 
@@ -303,14 +303,14 @@ impl<F: MatchFunc> Aligner<F> {
 ///
 /// A directed acyclic graph datastructure that represents the topology of a
 /// traceback matrix.
-pub struct BandedPoa<F: MatchFunc> {
+pub struct Poa<F: MatchFunc> {
     scoring: Scoring<F>,
     pub graph: POAGraph,
     pub node_seq_tracker: Vec<Vec<u8>>,
     pub consensus: Vec<u8>,
 }
 
-impl<F: MatchFunc> BandedPoa<F> {
+impl<F: MatchFunc> Poa<F> {
     /// Create a new aligner instance from the directed acyclic graph of another.
     ///
     /// # Arguments
@@ -318,7 +318,7 @@ impl<F: MatchFunc> BandedPoa<F> {
     /// * `scoring` - the score struct
     /// * `poa` - the partially ordered reference alignment
     pub fn new(scoring: Scoring<F>, graph: POAGraph) -> Self {
-        BandedPoa { scoring, graph, node_seq_tracker: Vec::new(), consensus: Vec::new() }
+        Poa { scoring, graph, node_seq_tracker: Vec::new(), consensus: Vec::new() }
     }
 
     /// Create a new POA graph from an initial reference sequence and alignment penalties.
@@ -343,7 +343,7 @@ impl<F: MatchFunc> BandedPoa<F> {
         }
         let consensus = seq.to_vec();
         //println!("Reference Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel])); //added
-        BandedPoa { scoring, graph, node_seq_tracker, consensus }
+        Poa { scoring, graph, node_seq_tracker, consensus }
     }
 
     /// A global Needleman-Wunsch aligner on partially ordered graphs.
@@ -352,27 +352,20 @@ impl<F: MatchFunc> BandedPoa<F> {
     /// * `query` - the query TextSlice to align against the internal graph member
     pub fn global(&mut self, query: TextSlice) -> Traceback {
         assert!(self.graph.node_count() != 0);
-        let band_length = 25;
         //get the consensus with corrosponding node numbers
-        let mut test = vec![];
-        (self.consensus, test) = self.consensus();
-        //println!("{:?}", self.consensus);
-        //println!("{:?}", test);
-        //run the consensus on seq++
-        let mut matches = sparse::find_kmer_matches(&self.consensus, query, 5);
-        println!("{:?}", matches);
+        let topological_indices;
+        (self.consensus, topological_indices) = self.consensus();
+        //run the consensus on lcs++
+        let mut matches = sparse::find_kmer_matches(&self.consensus, query, KMER);
+        //convert consensus indices to topological indices
         for i in 0..matches.len(){
-            matches[i] = (test[matches[i].0 as usize] as u32, matches[i].1);
+            matches[i] = (topological_indices[matches[i].0 as usize] as u32, matches[i].1);
         }
-
-        println!("{:?}", matches);
+        //println!("{:?}", matches);
         // dimensions of the traceback matrix
         let (m, n) = (self.graph.node_count(), query.len());
         let mut traceback = Traceback::with_capacity(m, n);
         traceback.initialize_scores(self.scoring.gap_open);
-        //println!("Printing the  empty Initialized matrix");//added
-        //traceback.print(&self.graph, query);//added
-
         traceback.set(
             0,
             0,
@@ -381,7 +374,7 @@ impl<F: MatchFunc> BandedPoa<F> {
                 op: AlignmentOperation::Match(None),
             },
         );
-        //calculate all the node position in matches
+        //calculate all the node positions in matches
         let mut topo = Topo::new(&self.graph);
         let mut node_pos_vec = vec![];
         while let Some(node) = topo.next(&self.graph) {
@@ -422,16 +415,16 @@ impl<F: MatchFunc> BandedPoa<F> {
             //println!("Nodes with directed edges to current node:{:?}", prevs); //added
             // query base and its index in the DAG (traceback matrix rows)
             for (j_p, q) in query.iter().enumerate() {
-                if node_position_in_matches != -1 && matches[node_position_in_matches as usize].1 as usize > band_length {
-                    if j_p > matches[node_position_in_matches as usize].1 as usize + band_length{
+                if node_position_in_matches != -1 && matches[node_position_in_matches as usize].1 as usize  > BANDLENGTH {
+                    if j_p + 1 > matches[node_position_in_matches as usize].1 as usize + BANDLENGTH {
                         break;
                     }
-                    else if j_p  < matches[node_position_in_matches as usize].1 as usize - band_length {
+                    else if j_p + 1  < matches[node_position_in_matches as usize].1 as usize - BANDLENGTH {
                         continue;
                     }
                 }
                 else if node_position_in_matches == -1 {
-                    if j_p > band_length{
+                    if j_p + 1 > BANDLENGTH {
                         break;
                     }
                 }

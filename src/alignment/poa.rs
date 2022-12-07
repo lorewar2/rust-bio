@@ -519,8 +519,9 @@ impl<F: MatchFunc> Poa<F> {
             }
         }
     }
-    pub fn consensus(&self) -> Vec<u8> {
+    pub fn consensus(&self) -> (Vec<u8>, Vec<u8>) {
         let mut output: Vec<u8> = vec![];
+        let mut topopos: Vec<u8> = vec![];
         let mut topo = Topo::new(&self.graph);
         let mut topo_indices = Vec::new();
         let mut max_index = 0;
@@ -568,9 +569,10 @@ impl<F: MatchFunc> Poa<F> {
         //using traceback print out the max sequence
         //println!("Consensus");
         while pos != 123456789 {
+            topopos.push(pos as u8);
             output.push(self.graph.raw_nodes()[pos].weight);
             pos = next_in_path[pos];
         }
-        output
+        (output, topopos)
     }
 }

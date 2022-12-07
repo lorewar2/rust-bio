@@ -1,5 +1,5 @@
 use bio::alignment::pairwise::Scoring;
-use bio::alignment::{bandedpoa::*, TextSlice}; //use bio::alignment::{poa::*, TextSlice};
+use bio::alignment::{poa::*, TextSlice}; //bandedpoa/ poa
 use std::{
     fs::File,
     fs::OpenOptions,
@@ -9,13 +9,13 @@ use std::{
 use chrono;
 use rand::{Rng,SeedableRng};
 use rand::rngs::StdRng;
-
+use petgraph::dot::{Dot, Config};
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/65874.fasta";
-const SEED: u64 = 1337;
+const SEED: u64 = 1330;
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
@@ -46,11 +46,12 @@ fn run(seqvec: Vec<String>) {
         println!("Sequence {} processed", seqnum);
     }
     let normal_consensus;
-    (normal_consensus, _) = aligner.bandedpoa.consensus(); //just poa
+    (normal_consensus, _) = aligner.poa.consensus(); //just poa
 
     //get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
-
+    let graph = aligner.poa.graph;
+    println!("normal graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     ////////////////////////////
     //compressed poa alignment//
     ////////////////////////////
@@ -72,8 +73,9 @@ fn run(seqvec: Vec<String>) {
         println!("Sequence {} processed", seqnum);
     }
     let homopolymer_consensus;
-    (homopolymer_consensus, _) = aligner.bandedpoa.consensus(); //poa
-
+    (homopolymer_consensus, _) = aligner.poa.consensus(); //poa
+    let graph = aligner.poa.graph;
+    println!("homopolymer graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     //use homopolymer compressions sequences to make expanded consensus
     let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
     //get the scores of expanded consensus compared to sequences
@@ -99,6 +101,7 @@ fn run(seqvec: Vec<String>) {
     print!("\nExpanded consensus score:\t{}", expanded_score);
     println!("");
 
+    
     //write results to file
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
     write_consensus_fasta_file("./results/consensus.fa", &normal_consensus, &homopolymer_consensus, &expanded_consensus);
@@ -120,7 +123,7 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
             _ => 'X'
         });
     }
-    //randomvec.push(firstseq.iter().collect::<String>());
+    randomvec.push(firstseq.iter().collect::<String>());
     //loop for 10 
     for _ in 0..num_of_sequences{
         //clone the sequence
@@ -310,11 +313,71 @@ fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
     }
     consensus_score
 }
+fn print_u8_consensus(vector: &Vec<u8>) {
+    for base in vector {
+        match base {
+            55 => print!("_"),
+            65 => print!("A"),
+            67 => print!("C"),
+            71 => print!("G"),
+            84 => print!("T"),
+            _ => {},
+        }
+    }
+    println!("");
+}
+
+fn print_alignment(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment){
+    let mut vec1_representation = vec![];
+    let mut vec2_representation = vec![];
+    let mut vec1_index: usize = alignment.xstart;
+    let mut vec2_index: usize = alignment.ystart;
+    println!("{},{}",alignment.xstart, alignment.ystart);
+    for op in &alignment.operations {
+        match op {
+            bio::alignment::AlignmentOperation::Match => {
+                if vector1[vec1_index] != vector2[vec2_index] {
+                    println!("really?");
+                }
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                
+            },
+            bio::alignment::AlignmentOperation::Subst => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                println!("mismatch, {},{}",vec1_index, vec2_index);
+
+            },
+            bio::alignment::AlignmentOperation::Del => {
+                vec1_representation.push(55);
+                vec2_representation.push(vector2[vec2_index]);
+                println!("del, {},{}",vec1_index, vec2_index);
+                vec2_index += 1;
+               
+            },
+            bio::alignment::AlignmentOperation::Ins => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(55);
+            },
+            _ => {},
+        }
+        
+    }
+    print_u8_consensus(&vec1_representation);
+    print_u8_consensus(&vec2_representation);
+}
 
 fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<u32>, i32)  {
     //use homopolymer compressions sequences to make expanded consensus //make function
     let mut homopolymer_score = 0;
     let mut homopolymer_consensus_freq: Vec<u32> = vec![0; homopolymer_consensus.len()];
+    let mut i = 0;
     for homopolymer_seq in &homopolymer_vec{
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(homopolymer_consensus.len(), homopolymer_seq.bases.len(), GAP_OPEN, GAP_EXTEND, &score);
@@ -323,10 +386,12 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
         let mut homopolymer_index = alignment.ystart;
         //println!("start index consensus {}", consensus_index);
         //println!("start index sequence {}", homopolymer_index);
-        for op in alignment.operations {
+        
+        
+        for op in &alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
-                    //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);
+                    //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);                    
                     homopolymer_consensus_freq[consensus_index] += homopolymer_seq.frequencies[homopolymer_index];
                     homopolymer_index += 1;
                     consensus_index += 1;
@@ -348,15 +413,22 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
                 _ => {},
             }
         }
+        if i == 1 {
+            print_u8_consensus(&homopolymer_consensus);
+            print_u8_consensus(&homopolymer_consensus);
+            print_alignment(homopolymer_consensus, &homopolymer_seq.bases, &alignment)
+        }
         homopolymer_score += alignment.score;
+        i += 1;
+
     }
 
     //make the expanded consensus using the frequencies
     //++ average ++
     let mut expanded_consensus: Vec<u8> = vec![];
     for i in 0..homopolymer_consensus.len(){
-        expanded_consensus.push(homopolymer_consensus[i]);
-        for _ in 0..(homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32).round() as i32 - 1 {
+        //expanded_consensus.push(homopolymer_consensus[i]);
+        for _ in 0..(homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32).round() as i32 {
             expanded_consensus.push(homopolymer_consensus[i]);
         }
     }
