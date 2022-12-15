@@ -446,7 +446,7 @@ fn get_alignment_vectors(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::
 
             },
             bio::alignment::AlignmentOperation::Del => {
-                vec1_representation.push(55);
+                vec1_representation.push(45);
                 vec2_representation.push(vector2[vec2_index]);
                 //println!("del, {},{}",vec1_index, vec2_index);
                 vec2_index += 1;
@@ -455,7 +455,7 @@ fn get_alignment_vectors(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::
             bio::alignment::AlignmentOperation::Ins => {
                 vec1_representation.push(vector1[vec1_index]);
                 vec1_index += 1;
-                vec2_representation.push(55);
+                vec2_representation.push(45);
             },
             _ => {},
         }
