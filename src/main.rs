@@ -75,8 +75,8 @@ fn run(seqvec: Vec<String>) {
     }
     let homopolymer_consensus;
     (homopolymer_consensus, _) = aligner.poa.consensus(); //poa
-    let graph = aligner.poa.graph;
-    println!("homopolymer graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
+    //let graph = aligner.poa.graph;
+    //println!("homopolymer graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     //use homopolymer compressions sequences to make expanded consensus
     let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
     //get the scores of expanded consensus compared to sequences
@@ -249,7 +249,7 @@ fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal_consensus:
         }
         index = index + 50;
         writeln!(file,
-            "{}\n{}",
+            "{}\n{}\n",
             std::str::from_utf8(&temp_vec1).unwrap(), std::str::from_utf8(&temp_vec2).unwrap())
             .expect("result file cannot be written");
     }
