@@ -230,9 +230,30 @@ fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal_consensus:
         .open(filename)
         .unwrap();
     writeln!(file,
-        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus:\n{}\n{}",
-        chrono::offset::Local::now(), FILENAME, std::str::from_utf8(normal_consensus).unwrap(), std::str::from_utf8(expanded_consensus).unwrap())
+        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus:",
+        chrono::offset::Local::now(), FILENAME)
         .expect("result file cannot be written");
+    let mut index = 0;
+    while index < normal_consensus.len() {
+        //get 50 characters
+        let mut temp_vec1 = vec!();
+        let mut temp_vec2 = vec!();
+        for i in index..index + 50{
+            if i < normal_consensus.len() {
+                temp_vec1.push(normal_consensus[i]);
+                temp_vec2.push(expanded_consensus[i]);
+            }
+            else {
+                break;
+            }
+        }
+        index = index + 50;
+        writeln!(file,
+            "{}\n{}",
+            std::str::from_utf8(&temp_vec1).unwrap(), std::str::from_utf8(&temp_vec2).unwrap())
+            .expect("result file cannot be written");
+    }
+    
 }
 
 fn get_consensus_from_file(filename: impl AsRef<Path>) -> Vec<u8> {
