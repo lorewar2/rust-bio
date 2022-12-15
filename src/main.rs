@@ -19,9 +19,9 @@ const FILENAME: &str = "./data/65874.fasta";
 const SEED: u64 = 1330;
 
 fn main() {
-    //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(100, 10);
-    println!("generated string: {}", seqvec[0]);
+    let seqvec = get_fasta_sequences_from_file(FILENAME);
+    //let seqvec = get_random_sequences_from_generator(100, 10);
+    //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
     //let abpoa_consensus = get_consensus_from_file("./data/cons.fa");
@@ -108,10 +108,11 @@ fn run(seqvec: Vec<String>) {
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&normal_consensus, &expanded_consensus);
     print_alignment(&normal_consensus,&expanded_consensus, &alignment);
-    
+    let (normal_alignment, expanded_alignment) = get_alignment_vectors(&normal_consensus,&expanded_consensus, &alignment);
     //write results to file
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
     write_consensus_fasta_file("./results/consensus.fa", &normal_consensus, &homopolymer_consensus, &expanded_consensus);
+    write_alignment_data_fasta_file("./results/consensus.fa", &normal_alignment, &expanded_alignment);
 
 }
 
@@ -221,6 +222,17 @@ fn write_filtered_data_fasta_file(filename: impl AsRef<Path>, seqvec: &Vec<Strin
             .expect("result file cannot be written");
         index += 1;
     }
+}
+fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal_consensus: &Vec<u8>, expanded_consensus: &Vec<u8>) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus:\n{}{}",
+        chrono::offset::Local::now(), FILENAME, std::str::from_utf8(normal_consensus).unwrap(), std::str::from_utf8(homopolymer_consensus).unwrap(), std::str::from_utf8(expanded_consensus).unwrap())
+        .expect("result file cannot be written");
 }
 
 fn get_consensus_from_file(filename: impl AsRef<Path>) -> Vec<u8> {
@@ -390,6 +402,45 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score)
 }
 
+fn get_alignment_vectors(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment) -> (Vec<u8>, Vec<u8>){
+    let mut vec1_representation = vec![];
+    let mut vec2_representation = vec![];
+    let mut vec1_index: usize = alignment.xstart;
+    let mut vec2_index: usize = alignment.ystart;
+    for op in &alignment.operations {
+        match op {
+            bio::alignment::AlignmentOperation::Match => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                
+            },
+            bio::alignment::AlignmentOperation::Subst => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                //println!("mismatch, {},{}",vec1_index, vec2_index);
+
+            },
+            bio::alignment::AlignmentOperation::Del => {
+                vec1_representation.push(55);
+                vec2_representation.push(vector2[vec2_index]);
+                //println!("del, {},{}",vec1_index, vec2_index);
+                vec2_index += 1;
+               
+            },
+            bio::alignment::AlignmentOperation::Ins => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(55);
+            },
+            _ => {},
+        }
+    }
+    (vec1_representation, vec2_representation)
+}
 //structs here
 pub struct HomopolymerSequence {
     pub bases: Vec<u8>,
