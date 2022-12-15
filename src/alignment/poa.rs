@@ -535,6 +535,7 @@ impl<F: MatchFunc> Poa<F> {
         }
         topo_indices.reverse();
         //define score and nextinpath vectors with capacity of num nodes.
+        let mut weight_scores: Vec<i32> = vec![0; max_index + 1];
         let mut scores: Vec<f64> = vec![0.0; max_index + 1];
         let mut next_in_path: Vec<usize> = vec![0; max_index + 1];
         //iterate thorugh the nodes in revere
@@ -562,13 +563,20 @@ impl<F: MatchFunc> Poa<F> {
             }
             scores[node.index()] = best_weight_score_edge.0 as f64 + best_weight_score_edge.1;
             next_in_path[node.index()] = best_weight_score_edge.2;
+            weight_scores[node.index()] = best_weight_score_edge.0;
         }
-        //println!("{:?}", scores);
-        //println!("{:?}", next_in_path);
         let mut pos = scores.iter().position(|&r| r == max_score).unwrap();
-        //using traceback print out the max sequence
-        //println!("Consensus");
+        //calculate the start weight score
+        let mut consensus_started: bool = false;
+        let weight_average = scores[pos] / scores.len() as f64;
+        let weight_threshold = weight_average as i32 / 2; 
         while pos != 123456789 {
+            //continue if starting weight score is too low
+            if consensus_started == false && weight_scores[pos] < weight_threshold {
+                pos = next_in_path[pos];
+                continue;
+            }
+            consensus_started = true;
             topopos.push(pos as u8);
             output.push(self.graph.raw_nodes()[pos].weight);
             pos = next_in_path[pos];

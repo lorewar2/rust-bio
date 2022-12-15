@@ -10,6 +10,7 @@ use chrono;
 use rand::{Rng,SeedableRng};
 use rand::rngs::StdRng;
 use petgraph::dot::{Dot, Config};
+
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
@@ -50,8 +51,8 @@ fn run(seqvec: Vec<String>) {
 
     //get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
-    let graph = aligner.poa.graph;
-    println!("normal graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
+    //let graph = aligner.poa.graph;
+    //println!("normal graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     ////////////////////////////
     //compressed poa alignment//
     ////////////////////////////
@@ -80,7 +81,7 @@ fn run(seqvec: Vec<String>) {
     let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
     //get the scores of expanded consensus compared to sequences
     let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
-
+    
     //print the results
     print!("Normal consensus:\t\t");
     for i in &normal_consensus{
@@ -101,6 +102,12 @@ fn run(seqvec: Vec<String>) {
     print!("\nExpanded consensus score:\t{}", expanded_score);
     println!("");
 
+    //align normal consensus with expanded consensus for debugging
+    println!("normal vs expanded consensus");
+    let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+    let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
+    let alignment = aligner.global(&normal_consensus, &expanded_consensus);
+    print_alignment(&normal_consensus,&expanded_consensus, &alignment);
     
     //write results to file
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
@@ -145,7 +152,7 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
         }
         //put indels at location with chance 0.1 
         for i in 0..mutseq.len() {
-            let mean_value: f64 = 1.5;
+            let mean_value: f64 = 1.5; //2.0 before
             //get length of the indel geometric distributed mean value 1.5
             let indel_length: usize  = ((1.0 - rng.gen::<f64>()).ln() / (1.00 - (1.00 / mean_value) as f64).ln()).ceil() as usize;
             match rng.gen_range(0..20){
@@ -313,65 +320,7 @@ fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
     }
     consensus_score
 }
-fn print_u8_consensus(vector: &Vec<u8>) {
-    for base in vector {
-        match base {
-            55 => print!("_"),
-            65 => print!("A"),
-            67 => print!("C"),
-            71 => print!("G"),
-            84 => print!("T"),
-            _ => {},
-        }
-    }
-    println!("");
-}
 
-fn print_alignment(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment){
-    let mut vec1_representation = vec![];
-    let mut vec2_representation = vec![];
-    let mut vec1_index: usize = alignment.xstart;
-    let mut vec2_index: usize = alignment.ystart;
-    println!("{},{}",alignment.xstart, alignment.ystart);
-    for op in &alignment.operations {
-        match op {
-            bio::alignment::AlignmentOperation::Match => {
-                if vector1[vec1_index] != vector2[vec2_index] {
-                    println!("really?");
-                }
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-                
-            },
-            bio::alignment::AlignmentOperation::Subst => {
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-                println!("mismatch, {},{}",vec1_index, vec2_index);
-
-            },
-            bio::alignment::AlignmentOperation::Del => {
-                vec1_representation.push(55);
-                vec2_representation.push(vector2[vec2_index]);
-                println!("del, {},{}",vec1_index, vec2_index);
-                vec2_index += 1;
-               
-            },
-            bio::alignment::AlignmentOperation::Ins => {
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(55);
-            },
-            _ => {},
-        }
-        
-    }
-    print_u8_consensus(&vec1_representation);
-    print_u8_consensus(&vec2_representation);
-}
 
 fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<u32>, i32)  {
     //use homopolymer compressions sequences to make expanded consensus //make function
@@ -414,9 +363,9 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
             }
         }
         if i == 1 {
-            print_u8_consensus(&homopolymer_consensus);
-            print_u8_consensus(&homopolymer_consensus);
-            print_alignment(homopolymer_consensus, &homopolymer_seq.bases, &alignment)
+            //print_u8_consensus(&homopolymer_consensus);
+            //print_u8_consensus(&homopolymer_consensus);
+            //print_alignment(homopolymer_consensus, &homopolymer_seq.bases, &alignment)
         }
         homopolymer_score += alignment.score;
         i += 1;
@@ -427,14 +376,21 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     //++ average ++
     let mut expanded_consensus: Vec<u8> = vec![];
     for i in 0..homopolymer_consensus.len(){
+        let repetitions = (homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32).round() as i32;
+        let decimal_value = (homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32) - repetitions as f32;
+        //println!("decimal value {}", decimal_value);
+        if decimal_value < -0.45 {
+            //repetitions -= 1;
+        }
         //expanded_consensus.push(homopolymer_consensus[i]);
-        for _ in 0..(homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32).round() as i32 {
+        for _ in 0..repetitions {
             expanded_consensus.push(homopolymer_consensus[i]);
         }
     }
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score)
 }
 
+//structs here
 pub struct HomopolymerSequence {
     pub bases: Vec<u8>,
     pub frequencies: Vec<u32>,
@@ -464,3 +420,59 @@ impl HomopolymerSequence {
     }
 }
 
+//print stuff here
+fn print_u8_consensus(vector: &Vec<u8>) {
+    for base in vector {
+        match base {
+            55 => print!("_"),
+            65 => print!("A"),
+            67 => print!("C"),
+            71 => print!("G"),
+            84 => print!("T"),
+            _ => {},
+        }
+    }
+    println!("");
+}
+
+fn print_alignment(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment){
+    let mut vec1_representation = vec![];
+    let mut vec2_representation = vec![];
+    let mut vec1_index: usize = alignment.xstart;
+    let mut vec2_index: usize = alignment.ystart;
+    for op in &alignment.operations {
+        match op {
+            bio::alignment::AlignmentOperation::Match => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                
+            },
+            bio::alignment::AlignmentOperation::Subst => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                //println!("mismatch, {},{}",vec1_index, vec2_index);
+
+            },
+            bio::alignment::AlignmentOperation::Del => {
+                vec1_representation.push(55);
+                vec2_representation.push(vector2[vec2_index]);
+                //println!("del, {},{}",vec1_index, vec2_index);
+                vec2_index += 1;
+               
+            },
+            bio::alignment::AlignmentOperation::Ins => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(55);
+            },
+            _ => {},
+        }
+        
+    }
+    print_u8_consensus(&vec1_representation);
+    print_u8_consensus(&vec2_representation);
+}
