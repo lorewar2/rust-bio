@@ -230,8 +230,8 @@ fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal_consensus:
         .open(filename)
         .unwrap();
     writeln!(file,
-        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus:\n{}{}",
-        chrono::offset::Local::now(), FILENAME, std::str::from_utf8(normal_consensus).unwrap(), std::str::from_utf8(homopolymer_consensus).unwrap(), std::str::from_utf8(expanded_consensus).unwrap())
+        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus:\n{}\n{}",
+        chrono::offset::Local::now(), FILENAME, std::str::from_utf8(normal_consensus).unwrap(), std::str::from_utf8(expanded_consensus).unwrap())
         .expect("result file cannot be written");
 }
 
