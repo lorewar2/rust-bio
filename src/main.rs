@@ -19,9 +19,9 @@ const FILENAME: &str = "./data/65874.fasta";
 const SEED: u64 = 1330;
 
 fn main() {
-    let seqvec = get_fasta_sequences_from_file(FILENAME);
-    //let seqvec = get_random_sequences_from_generator(100, 10);
-    //println!("generated string: {}", seqvec[0]);
+    //let seqvec = get_fasta_sequences_from_file(FILENAME);
+    let seqvec = get_random_sequences_from_generator(100, 10);
+    println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
     //let abpoa_consensus = get_consensus_from_file("./data/cons.fa");
@@ -107,7 +107,7 @@ fn run(seqvec: Vec<String>) {
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&normal_consensus, &expanded_consensus);
-    print_alignment(&normal_consensus,&expanded_consensus, &alignment);
+    //print_alignment_with_count(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq);
     let (normal_alignment, expanded_alignment) = get_alignment_vectors(&normal_consensus,&expanded_consensus, &alignment);
     //write results to file
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
@@ -238,7 +238,7 @@ fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal_consensus:
         //get 50 characters
         let mut temp_vec1 = vec!();
         let mut temp_vec2 = vec!();
-        for i in index..index + 50{
+        for i in index..index + 150{
             if i < normal_consensus.len() {
                 temp_vec1.push(normal_consensus[i]);
                 temp_vec2.push(expanded_consensus[i]);
@@ -247,7 +247,7 @@ fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal_consensus:
                 break;
             }
         }
-        index = index + 50;
+        index = index + 150;
         writeln!(file,
             "{}\n{}\n",
             std::str::from_utf8(&temp_vec1).unwrap(), std::str::from_utf8(&temp_vec2).unwrap())
@@ -355,12 +355,13 @@ fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
 }
 
 
-fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<u32>, i32)  {
+fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<Vec<u32>>, i32)  {
     //use homopolymer compressions sequences to make expanded consensus //make function
     let mut homopolymer_score = 0;
-    let mut homopolymer_consensus_freq: Vec<u32> = vec![0; homopolymer_consensus.len()];
+    let mut homopolymer_consensus_freq: Vec<Vec<u32>> = vec![vec![0; homopolymer_vec.len()]; homopolymer_consensus.len()];
     let mut i = 0;
     for homopolymer_seq in &homopolymer_vec{
+        let mut sequence_base_freq: Vec<u32> = vec![0; homopolymer_seq.bases.len()];
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(homopolymer_consensus.len(), homopolymer_seq.bases.len(), GAP_OPEN, GAP_EXTEND, &score);
         let alignment = aligner.global(&homopolymer_consensus, &homopolymer_seq.bases);
@@ -368,13 +369,12 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
         let mut homopolymer_index = alignment.ystart;
         //println!("start index consensus {}", consensus_index);
         //println!("start index sequence {}", homopolymer_index);
-        
-        
         for op in &alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
                     //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);                    
-                    homopolymer_consensus_freq[consensus_index] += homopolymer_seq.frequencies[homopolymer_index];
+                    homopolymer_consensus_freq[consensus_index][i] += homopolymer_seq.frequencies[homopolymer_index];
+                    sequence_base_freq[homopolymer_index] += homopolymer_seq.frequencies[homopolymer_index];
                     homopolymer_index += 1;
                     consensus_index += 1;
                 },
@@ -395,31 +395,45 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
                 _ => {},
             }
         }
-        if i == 1 {
+
             //print_u8_consensus(&homopolymer_consensus);
             //print_u8_consensus(&homopolymer_consensus);
-            //print_alignment(homopolymer_consensus, &homopolymer_seq.bases, &alignment)
-        }
+        
+        println!("sequence {}", i);
+        println!("{:?}", sequence_base_freq);
+        print_alignment_with_count(homopolymer_consensus, &homopolymer_seq.bases, &alignment, &sequence_base_freq);
         homopolymer_score += alignment.score;
         i += 1;
 
     }
 
     //make the expanded consensus using the frequencies
-    //++ average ++
     let mut expanded_consensus: Vec<u8> = vec![];
+    let mut repetitions: Vec<f32> = vec![0.0; homopolymer_consensus.len()];
+    //++ median ++ 
+    //reorder the homopolymer_consensus_freq by ascending order
     for i in 0..homopolymer_consensus.len(){
-        let repetitions = (homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32).round() as i32;
-        let decimal_value = (homopolymer_consensus_freq[i] as f32 / homopolymer_vec.len() as f32) - repetitions as f32;
-        //println!("decimal value {}", decimal_value);
-        if decimal_value < -0.45 {
-            //repetitions -= 1;
-        }
-        //expanded_consensus.push(homopolymer_consensus[i]);
-        for _ in 0..repetitions {
-            expanded_consensus.push(homopolymer_consensus[i]);
+        homopolymer_consensus_freq[i].sort();
+        repetitions[i] = homopolymer_consensus_freq[i][(homopolymer_vec.len() / 2) as usize] as f32;
+    }
+    for j in 0..homopolymer_consensus.len() {
+        for _ in 0..((repetitions[j]).round() as usize) {
+            expanded_consensus.push(homopolymer_consensus[j]);
         }
     }
+    /* 
+    //++ average ++
+    for i in 0..homopolymer_vec.len() {
+        for j in 0..homopolymer_consensus.len() {
+            repetitions[j] += homopolymer_consensus_freq[j][i] as f32; 
+        }
+    }
+    
+    for j in 0..homopolymer_consensus.len() {
+        for _ in 0..((repetitions[j] / homopolymer_vec.len() as f32).round() as usize) {
+            expanded_consensus.push(homopolymer_consensus[j]);
+        }
+    }*/
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score)
 }
 
@@ -507,44 +521,113 @@ fn print_u8_consensus(vector: &Vec<u8>) {
     println!("");
 }
 
-fn print_alignment(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment){
+fn print_alignment_with_count(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment, count: &Vec<u32>){
     let mut vec1_representation = vec![];
     let mut vec2_representation = vec![];
     let mut vec1_index: usize = alignment.xstart;
     let mut vec2_index: usize = alignment.ystart;
+    let mut prev_base: u8 = 0; //expanded consensus
+    let mut same_base = false;
+    let mut count_representation = vec![];
+    let mut count_index = 0;
     for op in &alignment.operations {
         match op {
             bio::alignment::AlignmentOperation::Match => {
                 vec1_representation.push(vector1[vec1_index]);
                 vec1_index += 1;
                 vec2_representation.push(vector2[vec2_index]);
+                if vector2[vec2_index] == prev_base {
+                    same_base = true;
+                }
+                else {
+                    same_base = false;
+                }
                 vec2_index += 1;
+                
                 
             },
             bio::alignment::AlignmentOperation::Subst => {
                 vec1_representation.push(vector1[vec1_index]);
                 vec1_index += 1;
                 vec2_representation.push(vector2[vec2_index]);
+                if vector2[vec2_index] == prev_base {
+                    same_base = true;
+                }
+                else {
+                    same_base = false;
+                }
                 vec2_index += 1;
                 //println!("mismatch, {},{}",vec1_index, vec2_index);
+                
 
             },
             bio::alignment::AlignmentOperation::Del => {
                 vec1_representation.push(55);
                 vec2_representation.push(vector2[vec2_index]);
                 //println!("del, {},{}",vec1_index, vec2_index);
+                if vector2[vec2_index] == prev_base {
+                    same_base = true;
+                }
+                else {
+                    same_base = false;
+                }
                 vec2_index += 1;
-               
+                
             },
             bio::alignment::AlignmentOperation::Ins => {
                 vec1_representation.push(vector1[vec1_index]);
                 vec1_index += 1;
                 vec2_representation.push(55);
+                same_base = true;
             },
             _ => {},
         }
-        
+        if same_base{
+            count_representation.push(45);
+        }
+        else {
+            count_representation.push(count[count_index]);
+            count_index += 1;
+        }
+        if vec2_index != 0 {
+            prev_base = vector2[vec2_index - 1];
+        }
     }
-    print_u8_consensus(&vec1_representation);
-    print_u8_consensus(&vec2_representation);
+    //print_u8_consensus(&vec1_representation);
+    //print_u8_consensus(&vec2_representation);
+    print_consensus_with_count(&vec1_representation, &vec2_representation, &count_representation);
+}
+
+fn print_consensus_with_count(normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<u32>) {
+    for i in 0..normal.len(){
+        match normal[i] {
+            55 => print!("_"),
+            65 => print!("A"),
+            67 => print!("C"),
+            71 => print!("G"),
+            84 => print!("T"),
+            _ => {},
+        }
+        print!(" ");
+        match expanded[i] {
+            55 => print!("_"),
+            65 => print!("A"),
+            67 => print!("C"),
+            71 => print!("G"),
+            84 => print!("T"),
+            _ => {},
+        }
+        print!(" {}\n", count_representation[i]);
+    }
+}
+fn print_count(count_representation: &Vec<u32>){
+    for i in 0..count_representation.len() {
+        if count_representation[i] != 45 {
+            print!("{},", count_representation[i]);
+        }
+        else {
+            print!("__,");
+        }
+    }
+    println!("");
 }
