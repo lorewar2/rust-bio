@@ -17,11 +17,12 @@ const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/65874.fasta";
 const SEED: u64 = 1330;
+const CONSENSUS_METHOD: u8 = 1; //0==average 1==median
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
     let seqvec = get_random_sequences_from_generator(100, 10);
-    println!("generated string: {}", seqvec[0]);
+    //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
     //let abpoa_consensus = get_consensus_from_file("./data/cons.fa");
@@ -131,7 +132,7 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
             _ => 'X'
         });
     }
-    randomvec.push(firstseq.iter().collect::<String>());
+    //randomvec.push(firstseq.iter().collect::<String>());
     //loop for 10 
     for _ in 0..num_of_sequences{
         //clone the sequence
@@ -399,9 +400,9 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
             //print_u8_consensus(&homopolymer_consensus);
             //print_u8_consensus(&homopolymer_consensus);
         
-        println!("sequence {}", i);
-        println!("{:?}", sequence_base_freq);
-        print_alignment_with_count(homopolymer_consensus, &homopolymer_seq.bases, &alignment, &sequence_base_freq);
+        //println!("sequence {}", i);
+        //println!("{:?}", sequence_base_freq);
+        //print_alignment_with_count(homopolymer_consensus, &homopolymer_seq.bases, &alignment, &sequence_base_freq);
         homopolymer_score += alignment.score;
         i += 1;
 
@@ -410,30 +411,35 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     //make the expanded consensus using the frequencies
     let mut expanded_consensus: Vec<u8> = vec![];
     let mut repetitions: Vec<f32> = vec![0.0; homopolymer_consensus.len()];
-    //++ median ++ 
-    //reorder the homopolymer_consensus_freq by ascending order
-    for i in 0..homopolymer_consensus.len(){
-        homopolymer_consensus_freq[i].sort();
-        repetitions[i] = homopolymer_consensus_freq[i][(homopolymer_vec.len() / 2) as usize] as f32;
-    }
-    for j in 0..homopolymer_consensus.len() {
-        for _ in 0..((repetitions[j]).round() as usize) {
-            expanded_consensus.push(homopolymer_consensus[j]);
+    //++ average ++
+    if CONSENSUS_METHOD == 0 {
+        for i in 0..homopolymer_vec.len() {
+            for j in 0..homopolymer_consensus.len() {
+                repetitions[j] += homopolymer_consensus_freq[j][i] as f32; 
+            }
+        }
+        
+        for j in 0..homopolymer_consensus.len() {
+            for _ in 0..((repetitions[j] / homopolymer_vec.len() as f32).round() as usize) {
+                expanded_consensus.push(homopolymer_consensus[j]);
+            }
         }
     }
-    /* 
-    //++ average ++
-    for i in 0..homopolymer_vec.len() {
+    //++ median ++ 
+    if CONSENSUS_METHOD == 1 {
+        //reorder the homopolymer_consensus_freq by ascending order
+        for i in 0..homopolymer_consensus.len(){
+            homopolymer_consensus_freq[i].sort();
+            repetitions[i] = homopolymer_consensus_freq[i][(homopolymer_vec.len() / 2) as usize] as f32;
+        }
         for j in 0..homopolymer_consensus.len() {
-            repetitions[j] += homopolymer_consensus_freq[j][i] as f32; 
+            for _ in 0..((repetitions[j]).round() as usize) {
+                expanded_consensus.push(homopolymer_consensus[j]);
+            }
         }
     }
     
-    for j in 0..homopolymer_consensus.len() {
-        for _ in 0..((repetitions[j] / homopolymer_vec.len() as f32).round() as usize) {
-            expanded_consensus.push(homopolymer_consensus[j]);
-        }
-    }*/
+    
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score)
 }
 
