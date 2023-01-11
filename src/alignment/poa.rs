@@ -248,9 +248,9 @@ impl<F: MatchFunc> Aligner<F> {
     }
 
     /// Add the alignment of the last query to the graph.
-    pub fn add_to_graph(&mut self, seq_number: u8) -> &mut Self {
+    pub fn add_to_graph(&mut self) -> &mut Self {
         let alignment = self.traceback.alignment();
-        self.poa.add_alignment(&alignment, &self.query, seq_number);
+        self.poa.add_alignment(&alignment, &self.query);
         //println!("{:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeNoLabel])); //added
         self
     }
@@ -430,88 +430,60 @@ impl<F: MatchFunc> Poa<F> {
     ///
     /// * `aln` - The alignment of the new sequence to the graph
     /// * `seq` - The sequence being incorporated
-    pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice, seq_number: u8) {
-        let mut prev: NodeIndex<usize> = NodeIndex::new(0);
+    pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice) {
+        let head = Topo::new(&self.graph).next(&self.graph).unwrap();
+        let mut prev: NodeIndex<usize> = NodeIndex::new(head.index());
         let mut i: usize = 0;
-        let mut start_seq_unmatched: bool = false;
+        let mut edge_not_connected: bool = false;
         for op in aln.operations.iter() {
             match op {
-                AlignmentOperation::Match(None) => { //previously i += 1;
-                    //println!("");
+                AlignmentOperation::Match(None) => {
                     let node: NodeIndex<usize> = NodeIndex::new(0);
-                    if (seq[i] != self.graph.raw_nodes()[0].weight) && (seq[i] != b'X') {
-                        //println!("Start node mismatch with sequence, do something");
-                        let new_node = self.graph.add_node(seq[i]);
-                        self.node_seq_tracker.push(vec![seq_number]);
-                        if start_seq_unmatched == true {
-                            //println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                            self.graph.add_edge(prev, new_node, 1);
-                            start_seq_unmatched = false;
-                        }
-                        prev = new_node;
+                    if (seq[i] != self.graph.raw_nodes()[head.index()].weight) && (seq[i] != b'X') {
+                        let node = self.graph.add_node(seq[i]);
+                        prev = node;
                     }
-                    else {
-                        //println!("Start node match with sequence, do nothing");
-                        if start_seq_unmatched == true {
-                            //println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                            self.graph.add_edge(prev, node, 1);
-                            prev = node;
-                            start_seq_unmatched = false;
-                        }
+                    if edge_not_connected {
+                        self.graph.add_edge(prev, node, 1);
+                        prev = node;
+                        edge_not_connected = false;
                     }
                     i += 1;
                 }
-                AlignmentOperation::Match(Some((_, p))) => {   
+                AlignmentOperation::Match(Some((_, p))) => {
                     let node = NodeIndex::new(*p);
                     if (seq[i] != self.graph.raw_nodes()[*p].weight) && (seq[i] != b'X') {
-                        //println!("mpx making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                         let node = self.graph.add_node(seq[i]);
-                        self.node_seq_tracker.push(vec![seq_number]);
                         self.graph.add_edge(prev, node, 1);
                         prev = node;
                     } else {
                         // increment node weight
                         match self.graph.find_edge(prev, node) {
                             Some(edge) => {
-                                //println!("mpm incr edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                                 *self.graph.edge_weight_mut(edge).unwrap() += 1;
-                                self.node_seq_tracker[node.index()].push(seq_number);
                             }
                             None => {
-                                // where the previous node was newly added
-                                //println!("mpm making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
-                                self.graph.add_edge(prev, node, 1);
-                                self.node_seq_tracker[node.index()].push(seq_number);
+                                if prev.index() != head.index() {
+                                    self.graph.add_edge(prev, node, 1);
+                                }
                             }
                         }
                         prev = NodeIndex::new(*p);
                     }
                     i += 1;
                 }
-                AlignmentOperation::Ins(None) => { // previously just i += 1
-                    //insertion at the start, take care if the sequence
+                AlignmentOperation::Ins(None) => {
                     let node = self.graph.add_node(seq[i]);
-                    self.node_seq_tracker.push(vec![seq_number]);
-                    if start_seq_unmatched == true {
-                        //println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                        self.graph.add_edge(prev, node, 1);
+                    if edge_not_connected {
+                        self.graph.add_edge(prev, node, 1);    
                     }
                     prev = node;
-                    start_seq_unmatched = true;
+                    edge_not_connected = true;
                     i += 1;
                 }
                 AlignmentOperation::Ins(Some(_)) => {
-                    if start_seq_unmatched == true {
-                        let node = NodeIndex::new(0);
-                        //println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                        self.graph.add_edge(prev, node, 1);
-                        prev = node;
-                        start_seq_unmatched = false;
-                    }
                     let node = self.graph.add_node(seq[i]);
-                    self.node_seq_tracker.push(vec![seq_number]);
-                    //println!("insp making edge from {}->{}", self.graph.raw_nodes()[prev.index()].weight, seq[i]);
-                    self.graph.add_edge(prev, node, 1); 
+                    self.graph.add_edge(prev, node, 1);
                     prev = node;
                     i += 1;
                 }

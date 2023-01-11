@@ -16,12 +16,12 @@ const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/65874.fasta";
-const SEED: u64 = 1330;
+const SEED: u64 = 3;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median
 
 fn main() {
-    //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(100, 10);
+    let seqvec = get_fasta_sequences_from_file(FILENAME);
+    //let seqvec = get_random_sequences_from_generator(1000, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -30,7 +30,6 @@ fn main() {
     //println!("abpoa score: {:?}", abpoa_consensus_score);
     //write_filtered_data_fasta_file("./results/filtered_data.fa", &seqvec);
 }
-
 
 fn run(seqvec: Vec<String>) {
     ////////////////////////
@@ -42,7 +41,7 @@ fn run(seqvec: Vec<String>) {
     let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
     for seq in &seqvec{
         if seqnum != 0 {
-            aligner.global(seq.as_bytes()).add_to_graph(seqnum);
+            aligner.global(seq.as_bytes()).add_to_graph();
         }
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
@@ -69,7 +68,7 @@ fn run(seqvec: Vec<String>) {
     let mut aligner = Aligner::new(scoring, &homopolymer_vec[0].bases);
     for homopolymer_seq in &homopolymer_vec{
         if seqnum != 0 {
-            aligner.global(&homopolymer_seq.bases).add_to_graph(seqnum);
+            aligner.global(&homopolymer_seq.bases).add_to_graph();
         }
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
