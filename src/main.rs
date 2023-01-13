@@ -10,18 +10,19 @@ use chrono;
 use rand::{Rng,SeedableRng};
 use rand::rngs::StdRng;
 use petgraph::dot::{Dot, Config};
+use std::collections::HashMap;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/65874.fasta";
-const SEED: u64 = 3;
-const CONSENSUS_METHOD: u8 = 1; //0==average 1==median
+const SEED: u64 = 0;
+const CONSENSUS_METHOD: u8 = 2; //0==average 1==median //2==mode
 
 fn main() {
-    let seqvec = get_fasta_sequences_from_file(FILENAME);
-    //let seqvec = get_random_sequences_from_generator(1000, 10);
+    //let seqvec = get_fasta_sequences_from_file(FILENAME);
+    let seqvec = get_random_sequences_from_generator(1000, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -93,8 +94,8 @@ fn run(seqvec: Vec<String>) {
         print!("{}", *i as char);
     }
     print!("\nHomopolymer score: \t\t{}", homopolymer_score);
-    print!("\nHomopolymer consensus freq:\t");
-    print!("{:?}", homopolymer_consensus_freq);
+    //print!("\nHomopolymer consensus freq:\t");
+    //print!("{:?}", homopolymer_consensus_freq);
     print!("\nExpanded consensus:\t\t");
     for i in &expanded_consensus{
         print!("{}", *i as char);
@@ -103,7 +104,6 @@ fn run(seqvec: Vec<String>) {
     println!("");
 
     //align normal consensus with expanded consensus for debugging
-    println!("normal vs expanded consensus");
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&normal_consensus, &expanded_consensus);
@@ -417,7 +417,6 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
                 repetitions[j] += homopolymer_consensus_freq[j][i] as f32; 
             }
         }
-        
         for j in 0..homopolymer_consensus.len() {
             for _ in 0..((repetitions[j] / homopolymer_vec.len() as f32).round() as usize) {
                 expanded_consensus.push(homopolymer_consensus[j]);
@@ -430,6 +429,32 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
         for i in 0..homopolymer_consensus.len(){
             homopolymer_consensus_freq[i].sort();
             repetitions[i] = homopolymer_consensus_freq[i][(homopolymer_vec.len() / 2) as usize] as f32;
+        }
+        for j in 0..homopolymer_consensus.len() {
+            for _ in 0..((repetitions[j]).round() as usize) {
+                expanded_consensus.push(homopolymer_consensus[j]);
+            }
+        }
+    }
+    //++ mode ++ if unwrap fails median used
+    if CONSENSUS_METHOD == 2 {
+        //get the mode of each base
+        for i in 0..homopolymer_consensus.len(){
+            homopolymer_consensus_freq[i].sort();
+            let mut counts = HashMap::new();
+            let mode = homopolymer_consensus_freq[i].iter().copied().max_by_key(|&n| {
+                let count = counts.entry(n).or_insert(0);
+                *count += 1;
+                *count
+            });
+            match mode {
+                Some(value) => {
+                    repetitions[i] = value as f32;
+                },
+                None => {
+                    repetitions[i] = homopolymer_consensus_freq[i][(homopolymer_vec.len() / 2) as usize] as f32;
+                }
+            }
         }
         for j in 0..homopolymer_consensus.len() {
             for _ in 0..((repetitions[j]).round() as usize) {
