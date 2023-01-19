@@ -54,7 +54,7 @@ fn run(seqvec: Vec<String>) {
     //get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
     let normal_graph = aligner.graph().map(|_, n| (*n) as char, |_, e| *e);
-    let normal_dot = format!("{:?}", Dot::new(&normal_graph));
+    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph));
     //let graph = aligner.poa.graph;
     //println!("normal graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     ////////////////////////////
@@ -86,9 +86,9 @@ fn run(seqvec: Vec<String>) {
     //use homopolymer compressions sequences to make expanded consensus
     // get graph
     let homopolymer_graph = aligner.graph().map(|_, n| (*n) as char, |_, e| *e);
-    let homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph));
-    println!("{}", homopolymer_dot);
-    println!("{}", normal_dot);
+    let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph));
+    //println!("{}", homopolymer_dot);
+    //println!("{}", normal_dot);
     let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymer_expanded) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
     //get the scores of expanded consensus compared to sequences
     let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
@@ -139,9 +139,114 @@ fn run(seqvec: Vec<String>) {
     //print the indices of graph
     println!("{:?} {:?} {:?} {:?} {:?} {:?}", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index);
     //print the graphs
-    println!("{}", normal_dot);
-    println!("{}", homopolymer_dot);
+    //println!("{:?}", normal_dot);
+    //println!("{:?}", homopolymer_dot);
+    //modify the graphs to indicate 
+    modify_and_write_the_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index, normal_dot, homopolymer_dot);
+}
 
+fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, 
+                                    normal_mismatch_indices: Vec<usize>, normal_insert_indices: Vec<usize>, normal_del_indices: Vec<usize>,
+                                        homopolymer_mismatch_indices: Vec<usize>, homopolymer_insert_indices: Vec<usize>, homopolymer_del_indices: Vec<usize>,
+                                            mut normal_dot: String, mut homopolymer_dot: String) {
+    let mut count = 0;
+    for index in normal_mismatch_indices {
+        match normal_dot.find(&index.to_string()) {
+            Some(mut x) => {
+                while normal_dot.chars().nth(x).unwrap() != ' ' {
+                    x += 1;
+                }
+                normal_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
+            },
+            None => {}
+        }
+        count += 1;
+    }
+    count = 0;
+    for index in normal_insert_indices {
+        match normal_dot.find(&index.to_string()) {
+            Some(mut x) => {
+                while normal_dot.chars().nth(x).unwrap() != ' ' {
+                    x += 1;
+                }
+                normal_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
+            },
+            None => {}
+        }
+        count += 1;
+    }
+    count = 0;
+    for index in normal_del_indices {
+        match normal_dot.find(&index.to_string()) {
+            Some(mut x) => {
+                while normal_dot.chars().nth(x).unwrap() != ' ' {
+                    x += 1;
+                }
+                normal_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
+            },
+            None => {}
+        }
+        count += 1;
+    }
+    count = 0;
+    for index in homopolymer_mismatch_indices {
+        match homopolymer_dot.find(&index.to_string()) {
+            Some(mut x) => {
+                while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
+                    x += 1;
+                }
+                homopolymer_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
+            },
+            None => {}
+        }
+        count += 1;
+    }
+    count = 0;
+    for index in homopolymer_insert_indices {
+        match homopolymer_dot.find(&index.to_string()) {
+            Some(mut x) => {
+                while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
+                    x += 1;
+                }
+                homopolymer_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
+            },
+            None => {}
+        }
+        count += 1;
+    }
+    count = 0;
+    for index in homopolymer_del_indices {
+        match homopolymer_dot.find(&index.to_string()) {
+            Some(mut x) => {
+                while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
+                    x += 1;
+                }
+                homopolymer_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
+            },
+            None => {}
+        }
+        count += 1;
+    } 
+    let mut normal_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(normal_filename)
+        .unwrap();
+    writeln!(normal_file,
+        "{:?} \nFILE: {}\n{}",
+        chrono::offset::Local::now(), FILENAME, normal_dot)
+        .expect("result file cannot be written");
+    let mut homopolymer_file = OpenOptions::new()
+    .write(true)
+    .append(true)
+    .open(homopolymer_filename)
+    .unwrap();
+    writeln!(homopolymer_file,
+        "{:?} \nFILE: {}\n{}",
+        chrono::offset::Local::now(), FILENAME, homopolymer_dot)
+        .expect("result file cannot be written");
+    //println!("{}", normal_dot);
+    //println!("{}", homopolymer_dot);
 }
 
 fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i32) -> Vec<String> {
@@ -553,8 +658,6 @@ fn get_alignment_with_count_for_debug(vector1: &Vec<u8>, vector2: &Vec<u8>, alig
                     same_base = false;
                 }
                 vec2_index += 1;
-                
-                
             },
             bio::alignment::AlignmentOperation::Subst => {
                 vec1_representation.push(vector1[vec1_index]);
