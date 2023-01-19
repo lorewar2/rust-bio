@@ -491,9 +491,9 @@ impl<F: MatchFunc> Poa<F> {
             }
         }
     }
-    pub fn consensus(&self) -> (Vec<u8>, Vec<u8>) {
+    pub fn consensus(&self) -> (Vec<u8>, Vec<usize>) {
         let mut output: Vec<u8> = vec![];
-        let mut topopos: Vec<u8> = vec![];
+        let mut topopos: Vec<usize> = vec![];
         let mut topo = Topo::new(&self.graph);
         let mut topo_indices = Vec::new();
         let mut max_index = 0;
@@ -549,7 +549,7 @@ impl<F: MatchFunc> Poa<F> {
                 continue;
             }
             consensus_started = true;
-            topopos.push(pos as u8);
+            topopos.push(pos as usize);
             output.push(self.graph.raw_nodes()[pos].weight);
             pos = next_in_path[pos];
         }
