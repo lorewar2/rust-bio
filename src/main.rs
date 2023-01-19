@@ -16,7 +16,7 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const FILENAME: &str = "./data/65874.fasta";
+const FILENAME: &str = "./data/161808690.fasta";
 const SEED: u64 = 0;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 
@@ -525,7 +525,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymervec_expanded)
 }
 
-fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::alignment::Alignment, homopolymer_expand: &Vec<u8>, normal_topo: &Vec<u8>, homopolymer_topo: &Vec<u8>) 
+fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::alignment::Alignment, homopolymer_expand: &Vec<u8>, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
                             -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>) {
 
     let mut normal_mismatches: Vec<usize> = vec![];
