@@ -250,7 +250,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
         "{:?} \nFILE: {}\n{}",
         chrono::offset::Local::now(), FILENAME, homopolymer_dot)
         .expect("result file cannot be written");
-    println!("{}", normal_dot);
+    //println!("{}", normal_dot);
     //println!("{}", homopolymer_dot);
 }
 
