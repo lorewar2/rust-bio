@@ -22,7 +22,7 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(1000, 10);
+    let seqvec = get_random_sequences_from_generator(100, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -48,10 +48,13 @@ fn run(seqvec: Vec<String>) {
         println!("Sequence {} processed", seqnum);
     }
     let normal_consensus;
-    (normal_consensus, _) = aligner.poa.consensus(); //just poa
+    let normal_topology;
+    (normal_consensus, normal_topology) = aligner.poa.consensus(); //just poa
 
     //get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
+    let normal_graph = aligner.graph().map(|_, n| (*n) as char, |_, e| *e);
+    let normal_dot = format!("{:?}", Dot::new(&normal_graph));
     //let graph = aligner.poa.graph;
     //println!("normal graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     ////////////////////////////
@@ -75,11 +78,18 @@ fn run(seqvec: Vec<String>) {
         println!("Sequence {} processed", seqnum);
     }
     let homopolymer_consensus;
-    (homopolymer_consensus, _) = aligner.poa.consensus(); //poa
+    let homopolymer_topology;
+    (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus(); //poa
+    println!("{:?}", homopolymer_topology);
     //let graph = aligner.poa.graph;
     //println!("homopolymer graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     //use homopolymer compressions sequences to make expanded consensus
-    let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
+    // get graph
+    let homopolymer_graph = aligner.graph().map(|_, n| (*n) as char, |_, e| *e);
+    let homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph));
+    println!("{}", homopolymer_dot);
+    println!("{}", normal_dot);
+    let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymer_expanded) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
     //get the scores of expanded consensus compared to sequences
     let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
     
@@ -108,7 +118,7 @@ fn run(seqvec: Vec<String>) {
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&normal_consensus, &expanded_consensus);
     print_alignment_with_count(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
-    let (normal_alignment, expanded_alignment) = get_alignment_vectors(&normal_consensus,&expanded_consensus, &alignment);
+    get_alignment_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus, &homopolymer_expanded);
     //write results to file
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
     write_consensus_fasta_file("./results/consensus.fa", &normal_consensus, &homopolymer_consensus, &expanded_consensus);
@@ -283,7 +293,7 @@ fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
 }
 
 
-fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<Vec<u32>>, i32)  {
+fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<Vec<u32>>, i32, Vec<u8>)  {
     //use homopolymer compressions sequences to make expanded consensus //make function
     let mut homopolymer_score = 0;
     let mut homopolymer_consensus_freq: Vec<Vec<u32>> = vec![vec![0; homopolymer_vec.len()]; homopolymer_consensus.len()];
@@ -323,13 +333,6 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
                 _ => {},
             }
         }
-
-            //print_u8_consensus(&homopolymer_consensus);
-            //print_u8_consensus(&homopolymer_consensus);
-        
-        //println!("sequence {}", i);
-        //println!("{:?}", sequence_base_freq);
-        //print_alignment_with_count(homopolymer_consensus, &homopolymer_seq.bases, &alignment, &sequence_base_freq);
         homopolymer_score += alignment.score;
         i += 1;
 
@@ -339,6 +342,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     let mut expanded_consensus: Vec<u8> = vec![];
     let mut repetitions: Vec<f32> = vec![0.0; homopolymer_consensus.len()];
 
+    let mut homopolymervec_expanded: Vec<u8> = vec![];
     //++ average ++
     if CONSENSUS_METHOD == 0 {
         for i in 0..homopolymer_vec.len() {
@@ -350,6 +354,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
             for _ in 0..((repetitions[j] / homopolymer_vec.len() as f32).round() as usize) {
                 expanded_consensus.push(homopolymer_consensus[j]);
             }
+            homopolymervec_expanded.push(((repetitions[j] / homopolymer_vec.len() as f32).round() as u8));
         }
     }
     //++ median ++ 
@@ -364,6 +369,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
             for _ in 0..((repetitions[j]).round() as usize) {
                 expanded_consensus.push(homopolymer_consensus[j]);
             }
+            homopolymervec_expanded.push((repetitions[j]).round() as u8);
         }
     }
     //++ mode ++ if unwrap fails median used
@@ -391,51 +397,99 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
             for _ in 0..((repetitions[j]).round() as usize) {
                 expanded_consensus.push(homopolymer_consensus[j]);
             }
+            homopolymervec_expanded.push((repetitions[j]).round() as u8);
         }
     }
     
-    
-    (expanded_consensus, homopolymer_consensus_freq, homopolymer_score)
+    (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymervec_expanded)
 }
 
-fn get_alignment_vectors(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment) -> (Vec<u8>, Vec<u8>){
-    let mut vec1_representation = vec![];
-    let mut vec2_representation = vec![];
-    let mut vec1_index: usize = alignment.xstart;
-    let mut vec2_index: usize = alignment.ystart;
+fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::alignment::Alignment, homopolymer: &Vec<u8>, homopolymer_expand: &Vec<u8>) 
+                            -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>) {
+
+    let mut normal_mismatches: Vec<usize> = vec![];
+    let mut normal_insertions: Vec<usize> = vec![];
+    let mut normal_deletions: Vec<usize> = vec![];
+
+    let mut expanded_mismatches: Vec<usize> = vec![];
+    let mut expanded_insertions: Vec<usize> = vec![];
+    let mut expanded_deletions: Vec<usize> = vec![];
+
+    let mut homopolymer_mismatches: Vec<usize> = vec![];
+    let mut homopolymer_insertions: Vec<usize> = vec![];
+    let mut homopolymer_deletions: Vec<usize> = vec![];
+
+    let mut normal_index: usize = alignment.xstart;
+    let mut expanded_index: usize = alignment.ystart;
     for op in &alignment.operations {
         match op {
             bio::alignment::AlignmentOperation::Match => {
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-                
+                normal_index += 1;
+                expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Subst => {
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-                //println!("mismatch, {},{}",vec1_index, vec2_index);
-
+                normal_index += 1;
+                expanded_index += 1;
+                println!("mismatch, {},{}", normal_index, expanded_index);
+                println!("{} =! {}", normal[normal_index], expanded[expanded_index]);
+                normal_mismatches.push(normal_index);
+                expanded_mismatches.push(expanded_index);
             },
             bio::alignment::AlignmentOperation::Del => {
-                vec1_representation.push(45);
-                vec2_representation.push(vector2[vec2_index]);
-                //println!("del, {},{}",vec1_index, vec2_index);
-                vec2_index += 1;
-               
+                println!("del, {},{}", normal_index, expanded_index);
+                println!("{} =! {}", normal[normal_index], expanded[expanded_index + 1]);
+                expanded_insertions.push(expanded_index);
+                normal_deletions.push(normal_index);
+                expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Ins => {
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(45);
+                println!("ins, {},{}", normal_index, expanded_index);
+                println!("{} =! {}", normal[normal_index + 1], expanded[expanded_index]);
+                normal_insertions.push(normal_index);
+                expanded_insertions.push(expanded_index);
+                normal_index += 1;
             },
             _ => {},
         }
     }
-    (vec1_representation, vec2_representation)
+    // calculate the homopolymer stuff from expanded stuff
+    for expanded_entry in expanded_mismatches {
+        let mut index = 0;
+        let mut homopolymer_index = 0;
+        for homopolymer_freq in homopolymer_expand {
+            if expanded_entry <= index {
+                homopolymer_mismatches.push(homopolymer_index);
+                break;
+            }
+            index += *homopolymer_freq as usize;
+            homopolymer_index += 1;
+        }
+    }
+    for expanded_entry in expanded_insertions {
+        let mut index = 0;
+        let mut homopolymer_index = 0;
+        for homopolymer_freq in homopolymer_expand {
+            if expanded_entry <= index {
+                homopolymer_insertions.push(homopolymer_index);
+                break;
+            }
+            index += *homopolymer_freq as usize;
+            homopolymer_index += 1;
+        }
+    }
+    for expanded_entry in expanded_deletions {
+        let mut index = 0;
+        let mut homopolymer_index = 0;
+        for homopolymer_freq in homopolymer_expand {
+            if expanded_entry <= index {
+                homopolymer_deletions.push(homopolymer_index);
+                break;
+            }
+            index += *homopolymer_freq as usize;
+            homopolymer_index += 1;
+        }
+    }
+    (normal_mismatches, normal_insertions, normal_deletions, expanded_mismatches, expanded_insertions, expanded_deletions, homopolymer_mismatches, homopolymer_insertions, homopolymer_deletions)
 }
 //structs here
 pub struct HomopolymerSequence {
