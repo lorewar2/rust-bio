@@ -22,7 +22,7 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(1000, 10);
+    let seqvec = get_random_sequences_from_generator(100, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -150,7 +150,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                                             mut normal_dot: String, mut homopolymer_dot: String) {
     let mut count = 0;
     for index in normal_mismatch_indices {
-        match normal_dot.find(&index.to_string()) {
+        match normal_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
@@ -164,7 +164,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
     }
     count = 0;
     for index in normal_insert_indices {
-        match normal_dot.find(&index.to_string()) {
+        match normal_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
@@ -178,7 +178,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
     }
     count = 0;
     for index in normal_del_indices {
-        match normal_dot.find(&index.to_string()) {
+        match normal_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
@@ -192,7 +192,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
     }
     count = 0;
     for index in homopolymer_mismatch_indices {
-        match homopolymer_dot.find(&index.to_string()) {
+        match homopolymer_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
@@ -206,7 +206,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
     }
     count = 0;
     for index in homopolymer_insert_indices {
-        match homopolymer_dot.find(&index.to_string()) {
+        match homopolymer_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
@@ -220,7 +220,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
     }
     count = 0;
     for index in homopolymer_del_indices {
-        match homopolymer_dot.find(&index.to_string()) {
+        match homopolymer_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
