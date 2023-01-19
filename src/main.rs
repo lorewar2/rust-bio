@@ -80,7 +80,6 @@ fn run(seqvec: Vec<String>) {
     let homopolymer_consensus;
     let homopolymer_topology;
     (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus(); //poa
-    println!("{:?}", homopolymer_topology);
     //let graph = aligner.poa.graph;
     //println!("homopolymer graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     //use homopolymer compressions sequences to make expanded consensus
@@ -156,6 +155,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
+                normal_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
                 normal_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
             },
             None => {}
@@ -169,6 +169,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
+                normal_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
                 normal_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
             },
             None => {}
@@ -182,6 +183,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
+                normal_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
                 normal_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
             },
             None => {}
@@ -195,6 +197,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
+                homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
                 homopolymer_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
             },
             None => {}
@@ -208,6 +211,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
+                homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
                 homopolymer_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
             },
             None => {}
@@ -221,6 +225,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
+                homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
                 homopolymer_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
             },
             None => {}
@@ -549,8 +554,6 @@ fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::
                 expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Subst => {
-                println!("mismatch, {},{}", normal_index, expanded_index);
-                println!("{} =! {}", normal[normal_index], expanded[expanded_index]);
                 normal_mismatches.push(normal_index);
                 expanded_mismatches.push(expanded_index);
                 alignment_mismatches.push(alignment_index);
@@ -558,16 +561,12 @@ fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::
                 expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Del => {
-                println!("del, {},{}", normal_index, expanded_index);
-                println!("{} =! {}", normal[normal_index], expanded[expanded_index + 1]);
                 expanded_insertions.push(expanded_index);
                 normal_deletions.push(normal_index);
                 alignment_deletions.push(alignment_index);
                 expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Ins => {
-                println!("ins, {},{}", normal_index, expanded_index);
-                println!("{} =! {}", normal[normal_index + 1], expanded[expanded_index]);
                 normal_insertions.push(normal_index);
                 expanded_deletions.push(expanded_index);
                 alignment_insertions.push(alignment_index);
@@ -876,7 +875,7 @@ fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>,
         write_string.push("\n".to_string());
         index = index + 50;
         for entry in write_string{
-            print!("{}", entry);
+            //print!("{}", entry);
             write!(file,
                 "{}",
                 entry)
