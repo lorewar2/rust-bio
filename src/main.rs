@@ -22,7 +22,7 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(100, 10);
+    let seqvec = get_random_sequences_from_generator(1000, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -155,7 +155,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
-                normal_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
+                //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
                 normal_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
             },
             None => {}
@@ -169,7 +169,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
-                normal_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
+                //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
                 normal_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
             },
             None => {}
@@ -183,7 +183,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
-                normal_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
+                //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
                 normal_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
             },
             None => {}
@@ -197,7 +197,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
-                homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
+                //homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
                 homopolymer_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
             },
             None => {}
@@ -211,7 +211,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
-                homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
+                //homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
                 homopolymer_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
             },
             None => {}
@@ -225,7 +225,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
                 while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
                     x += 1;
                 }
-                homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
+                //homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
                 homopolymer_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
             },
             None => {}
@@ -250,7 +250,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
         "{:?} \nFILE: {}\n{}",
         chrono::offset::Local::now(), FILENAME, homopolymer_dot)
         .expect("result file cannot be written");
-    //println!("{}", normal_dot);
+    println!("{}", normal_dot);
     //println!("{}", homopolymer_dot);
 }
 
