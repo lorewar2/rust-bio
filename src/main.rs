@@ -113,16 +113,34 @@ fn run(seqvec: Vec<String>) {
     print!("\nExpanded consensus score:\t{}", expanded_score);
     println!("");
 
-    //align normal consensus with expanded consensus for debugging
+    //DEBUGGING
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&normal_consensus, &expanded_consensus);
-    print_alignment_with_count(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
-    get_alignment_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus, &homopolymer_expanded);
+    let mismatch_index;
+    let insert_index;
+    let del_index;
+    let normal_mismatch_index;
+    let normal_insert_index;
+    let normal_del_index;
+    let homopolymer_mismatch_index;
+    let homopolymer_insert_index;
+    let homopolymer_del_index;
+    (normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index, mismatch_index, insert_index, del_index) 
+        = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
+    let (normal_rep, expanded_rep, count_rep) 
+        = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
     //write results to file
+    write_alignment_data_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
+        &count_rep, seqnum as usize, mismatch_index,
+        insert_index, del_index);
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
-    write_consensus_fasta_file("./results/consensus.fa", &normal_consensus, &homopolymer_consensus, &expanded_consensus);
-    //write_alignment_data_fasta_file("./results/consensus.fa", &normal_alignment, &expanded_alignment);
+    
+    //print the indices of graph
+    println!("{:?} {:?} {:?} {:?} {:?} {:?}", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index);
+    //print the graphs
+    println!("{}", normal_dot);
+    println!("{}", homopolymer_dot);
 
 }
 
@@ -274,13 +292,6 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     seqvec
 }
 
-fn get_pair_score(seq1 : String, seq2: String){
-    let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-    let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seq1.len(), seq2.len(), GAP_OPEN, GAP_EXTEND, &score);
-    let alignment = aligner.global(seq1.as_bytes(), seq2.as_bytes());
-    println!("{}", alignment.score);
-}
-
 fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
     let mut consensus_score = 0;
     for seq in seqvec{
@@ -404,7 +415,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
     (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymervec_expanded)
 }
 
-fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::alignment::Alignment, homopolymer: &Vec<u8>, homopolymer_expand: &Vec<u8>) 
+fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::alignment::Alignment, homopolymer_expand: &Vec<u8>, normal_topo: &Vec<u8>, homopolymer_topo: &Vec<u8>) 
                             -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>) {
 
     let mut normal_mismatches: Vec<usize> = vec![];
@@ -419,6 +430,11 @@ fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio
     let mut homopolymer_insertions: Vec<usize> = vec![];
     let mut homopolymer_deletions: Vec<usize> = vec![];
 
+    let mut alignment_mismatches: Vec<usize> = vec![];
+    let mut alignment_insertions: Vec<usize> = vec![];
+    let mut alignment_deletions: Vec<usize> = vec![];
+    let mut alignment_index: usize = 0;
+
     let mut normal_index: usize = alignment.xstart;
     let mut expanded_index: usize = alignment.ystart;
     for op in &alignment.operations {
@@ -428,36 +444,40 @@ fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio
                 expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Subst => {
-                normal_index += 1;
-                expanded_index += 1;
                 println!("mismatch, {},{}", normal_index, expanded_index);
                 println!("{} =! {}", normal[normal_index], expanded[expanded_index]);
                 normal_mismatches.push(normal_index);
                 expanded_mismatches.push(expanded_index);
+                alignment_mismatches.push(alignment_index);
+                normal_index += 1;
+                expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Del => {
                 println!("del, {},{}", normal_index, expanded_index);
                 println!("{} =! {}", normal[normal_index], expanded[expanded_index + 1]);
                 expanded_insertions.push(expanded_index);
                 normal_deletions.push(normal_index);
+                alignment_deletions.push(alignment_index);
                 expanded_index += 1;
             },
             bio::alignment::AlignmentOperation::Ins => {
                 println!("ins, {},{}", normal_index, expanded_index);
                 println!("{} =! {}", normal[normal_index + 1], expanded[expanded_index]);
                 normal_insertions.push(normal_index);
-                expanded_insertions.push(expanded_index);
+                expanded_deletions.push(expanded_index);
+                alignment_insertions.push(alignment_index);
                 normal_index += 1;
             },
             _ => {},
         }
+        alignment_index += 1;
     }
     // calculate the homopolymer stuff from expanded stuff
-    for expanded_entry in expanded_mismatches {
+    for expanded_entry in &expanded_mismatches {
         let mut index = 0;
         let mut homopolymer_index = 0;
         for homopolymer_freq in homopolymer_expand {
-            if expanded_entry <= index {
+            if expanded_entry <= &index {
                 homopolymer_mismatches.push(homopolymer_index);
                 break;
             }
@@ -465,11 +485,11 @@ fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio
             homopolymer_index += 1;
         }
     }
-    for expanded_entry in expanded_insertions {
+    for expanded_entry in &expanded_insertions {
         let mut index = 0;
         let mut homopolymer_index = 0;
         for homopolymer_freq in homopolymer_expand {
-            if expanded_entry <= index {
+            if expanded_entry <= &index {
                 homopolymer_insertions.push(homopolymer_index);
                 break;
             }
@@ -477,11 +497,11 @@ fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio
             homopolymer_index += 1;
         }
     }
-    for expanded_entry in expanded_deletions {
+    for expanded_entry in &expanded_deletions {
         let mut index = 0;
         let mut homopolymer_index = 0;
         for homopolymer_freq in homopolymer_expand {
-            if expanded_entry <= index {
+            if expanded_entry <= &index {
                 homopolymer_deletions.push(homopolymer_index);
                 break;
             }
@@ -489,81 +509,28 @@ fn get_alignment_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio
             homopolymer_index += 1;
         }
     }
-    (normal_mismatches, normal_insertions, normal_deletions, expanded_mismatches, expanded_insertions, expanded_deletions, homopolymer_mismatches, homopolymer_insertions, homopolymer_deletions)
-}
-//structs here
-pub struct HomopolymerSequence {
-    pub bases: Vec<u8>,
-    pub frequencies: Vec<u32>,
-}
-
-impl HomopolymerSequence {
-    fn new(query: TextSlice) -> Self{
-        let mut temp_bases = vec![];
-        let mut temp_frequencies = vec![];
-        let mut prev_base = 0;
-        for &base in query{
-            if prev_base == base{
-                if let Some(last) = temp_frequencies.last_mut() {
-                    *last = *last + 1;
-                }
-            }
-            else {
-                temp_bases.push(base);
-                temp_frequencies.push(1);
-            }
-            prev_base = base;
-        }
-        HomopolymerSequence {
-            bases: temp_bases,
-            frequencies: temp_frequencies,
-        }
+    //calculate normal and homopolymer positions in respective graphs using the topology indices
+    for index in 0..normal_mismatches.len() {
+        normal_mismatches[index] = normal_topo[normal_mismatches[index] as usize] as usize;
     }
-}
-
-//write stuff here 
-fn write_scores_result_file(filename: impl AsRef<Path>, normal_score: i32, homopolymer_score: i32, expanded_score: i32) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    writeln!(file,
-            "{:?} \nFILE: {}\nNormal score:\t\t\t{}\nHomopolymer score:\t\t{}\nExpanded score:\t\t\t{}",
-            chrono::offset::Local::now(), FILENAME, normal_score, homopolymer_score, expanded_score)
-            .expect("result file cannot be written");
-}
-
-fn write_consensus_fasta_file(filename: impl AsRef<Path>, normal_consensus: &Vec<u8>, homopolymer_consensus: &Vec<u8>, expanded_consensus: &Vec<u8>) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    writeln!(file,
-        "{:?}\nFILE: {}\n>Normal consensus:\n{}\n>Homopolymer consensus:\n{}\n>Expanded consensus:\n{}",
-        chrono::offset::Local::now(), FILENAME, std::str::from_utf8(normal_consensus).unwrap(), std::str::from_utf8(homopolymer_consensus).unwrap(), std::str::from_utf8(expanded_consensus).unwrap())
-        .expect("result file cannot be written");
-}
-
-fn write_filtered_data_fasta_file(filename: impl AsRef<Path>, seqvec: &Vec<String>) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    let mut index = 1;
-    for seq in seqvec {
-        writeln!(file,
-            ">seq {}\n{}",
-            index, seq)
-            .expect("result file cannot be written");
-        index += 1;
+    for index in 0..normal_insertions.len() {
+        normal_insertions[index] = normal_topo[normal_insertions[index] as usize] as usize;
     }
+    for index in 0..normal_deletions.len() {
+        normal_deletions[index] = normal_topo[normal_deletions[index] as usize] as usize;
+    }
+    for index in 0..homopolymer_mismatches.len() {
+        homopolymer_mismatches[index] = homopolymer_topo[homopolymer_mismatches[index] as usize] as usize;
+    }
+    for index in 0..homopolymer_insertions.len() {
+        homopolymer_insertions[index] = homopolymer_topo[homopolymer_insertions[index] as usize] as usize;
+    }
+    for index in 0..homopolymer_deletions.len() {
+        homopolymer_deletions[index] = homopolymer_topo[homopolymer_deletions[index] as usize] as usize;
+    }
+    (normal_mismatches, normal_insertions, normal_deletions, homopolymer_mismatches, homopolymer_insertions, homopolymer_deletions, alignment_mismatches, alignment_insertions, alignment_deletions)
 }
-
-//print stuff here
-fn print_alignment_with_count(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment, count: &Vec<Vec<u32>>, sequence_num: usize){
+fn get_alignment_with_count_for_debug(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment, count: &Vec<Vec<u32>>, sequence_num: usize) -> (Vec<u8>, Vec<u8>, Vec<Vec<u32>>){
     let mut vec1_representation = vec![];
     let mut vec2_representation = vec![];
     let mut vec1_index: usize = alignment.xstart;
@@ -644,9 +611,177 @@ fn print_alignment_with_count(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &
     //print
     //print_consensus_with_count(&vec1_representation, &vec2_representation, &count_representation, sequence_num);
     //write
-    write_alignment_data_fasta_file("./results/consensus.fa", &vec1_representation, &vec2_representation, &count_representation, sequence_num);
+    (vec1_representation, vec2_representation, count_representation)
+    //write_alignment_data_fasta_file("./results/consensus.fa", &vec1_representation, &vec2_representation, &count_representation, sequence_num);
+}
+//structs here
+pub struct HomopolymerSequence {
+    pub bases: Vec<u8>,
+    pub frequencies: Vec<u32>,
 }
 
+impl HomopolymerSequence {
+    fn new(query: TextSlice) -> Self{
+        let mut temp_bases = vec![];
+        let mut temp_frequencies = vec![];
+        let mut prev_base = 0;
+        for &base in query{
+            if prev_base == base{
+                if let Some(last) = temp_frequencies.last_mut() {
+                    *last = *last + 1;
+                }
+            }
+            else {
+                temp_bases.push(base);
+                temp_frequencies.push(1);
+            }
+            prev_base = base;
+        }
+        HomopolymerSequence {
+            bases: temp_bases,
+            frequencies: temp_frequencies,
+        }
+    }
+}
+
+//write stuff here 
+fn write_scores_result_file(filename: impl AsRef<Path>, normal_score: i32, homopolymer_score: i32, expanded_score: i32) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+            "{:?} \nFILE: {}\nNormal score:\t\t\t{}\nHomopolymer score:\t\t{}\nExpanded score:\t\t\t{}",
+            chrono::offset::Local::now(), FILENAME, normal_score, homopolymer_score, expanded_score)
+            .expect("result file cannot be written");
+}
+
+fn write_consensus_fasta_file(filename: impl AsRef<Path>, normal_consensus: &Vec<u8>, homopolymer_consensus: &Vec<u8>, expanded_consensus: &Vec<u8>) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Normal consensus:\n{}\n>Homopolymer consensus:\n{}\n>Expanded consensus:\n{}",
+        chrono::offset::Local::now(), FILENAME, std::str::from_utf8(normal_consensus).unwrap(), std::str::from_utf8(homopolymer_consensus).unwrap(), std::str::from_utf8(expanded_consensus).unwrap())
+        .expect("result file cannot be written");
+}
+
+fn write_filtered_data_fasta_file(filename: impl AsRef<Path>, seqvec: &Vec<String>) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    let mut index = 1;
+    for seq in seqvec {
+        writeln!(file,
+            ">seq {}\n{}",
+            index, seq)
+            .expect("result file cannot be written");
+        index += 1;
+    }
+}
+
+fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, mismatch_indices: Vec<usize>, insert_indices: Vec<usize>, del_indices: Vec<usize>){
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
+        chrono::offset::Local::now(), FILENAME)
+        .expect("result file cannot be written");
+
+    let mut index = 0;
+    while index + 50 < normal.len() {
+        let mut write_string: Vec<String> = vec![];
+        //count the mismatches, inserts and del in that range
+        let mut mismatch_count = 0;
+        let mut insert_count = 0;
+        let mut del_count = 0;
+        for mismatch_index in index..index + 50 {
+            if mismatch_indices.contains(&mismatch_index) {
+                mismatch_count += 1;
+            }
+            if insert_indices.contains(&mismatch_index) {
+                insert_count += 1;
+            }
+            if del_indices.contains(&mismatch_index) {
+                del_count += 1;
+            }
+        }
+        write_string.push(format!("{}~{} out of {} (mismatches:{}, inserts:{}, deletions:{})\n", index, index + 50, normal.len(), mismatch_count, insert_count, del_count).to_string());
+        write_string.push("normal:".to_string());
+        for i in index..index + 50 {
+            match normal[i] {
+                55 => write_string.push("  _".to_string()),
+                65 => write_string.push("  A".to_string()),
+                67 => write_string.push("  C".to_string()),
+                71 => write_string.push("  G".to_string()),
+                84 => write_string.push("  T".to_string()),
+                _ => {},
+            }
+            if mismatch_indices.contains(&i) {
+                write_string.push("*".to_string());
+            }
+            else if insert_indices.contains(&i) {
+                write_string.push("%".to_string());
+            }
+            else if del_indices.contains(&i) {
+                write_string.push("?".to_string());
+            }
+            else {
+                write_string.push(" ".to_string());
+            }
+        }
+        write_string.push(format!("\nexpand:"));
+        for i in index..index + 50 {
+            match expanded[i] {
+                55 => write_string.push("  _".to_string()),
+                65 => write_string.push("  A".to_string()),
+                67 => write_string.push("  C".to_string()),
+                71 => write_string.push("  G".to_string()),
+                84 => write_string.push("  T".to_string()),
+                _ => {},
+            }
+            if mismatch_indices.contains(&i) {
+                write_string.push("*".to_string());
+            }
+            else if insert_indices.contains(&i) {
+                write_string.push("%".to_string());
+            }
+            else if del_indices.contains(&i) {
+                write_string.push("?".to_string());
+            }
+            else {
+                write_string.push(" ".to_string());
+            }
+        }
+        write_string.push("\n".to_string());
+        
+        for j in 0..sequence_num {
+            write_string.push(format!("seq{:>3}:", j).to_string());
+            for i in index..index + 50 {
+                write_string.push(format!("{:>3},", count_representation[j][i]).to_string()); 
+            }
+            write_string.push("\n".to_string());
+        }
+        write_string.push("\n".to_string());
+        index = index + 50;
+        for entry in write_string{
+            print!("{}", entry);
+            write!(file,
+                "{}",
+                entry)
+                .expect("result file cannot be written");
+        }
+    }
+}
+//print stuff here
 fn print_consensus_with_count(normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize) {
     let mut index = 0;
     while index + 50 < normal.len() {
@@ -687,59 +822,3 @@ fn print_consensus_with_count(normal: &Vec<u8>, expanded: &Vec<u8>, count_repres
     }
 }
 
-fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize){
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    writeln!(file,
-        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
-        chrono::offset::Local::now(), FILENAME)
-        .expect("result file cannot be written");
-
-    let mut index = 0;
-    while index + 50 < normal.len() {
-        let mut write_string: Vec<String> = vec![];
-        write_string.push(format!("{}~{} out of {}\n", index, index + 50, normal.len()).to_string());
-        write_string.push("normal:".to_string());
-        for i in index..index + 50 {
-            match normal[i] {
-                55 => write_string.push("  _ ".to_string()),
-                65 => write_string.push("  A ".to_string()),
-                67 => write_string.push("  C ".to_string()),
-                71 => write_string.push("  G ".to_string()),
-                84 => write_string.push("  T ".to_string()),
-                _ => {},
-            }
-        }
-        write_string.push(format!("\nexpand:"));
-        for i in index..index + 50 {
-            match expanded[i] {
-                55 => write_string.push("  _ ".to_string()),
-                65 => write_string.push("  A ".to_string()),
-                67 => write_string.push("  C ".to_string()),
-                71 => write_string.push("  G ".to_string()),
-                84 => write_string.push("  T ".to_string()),
-                _ => {},
-            }
-        }
-        write_string.push("\n".to_string());
-        
-        for j in 0..sequence_num {
-            write_string.push(format!("seq{:>3}:", j).to_string());
-            for i in index..index + 50 {
-                write_string.push(format!("{:>3},", count_representation[j][i]).to_string()); 
-            }
-            write_string.push("\n".to_string());
-        }
-        write_string.push("\n".to_string());
-        index = index + 50;
-        for entry in write_string{
-            write!(file,
-                "{}",
-                entry)
-                .expect("result file cannot be written");
-        }
-    }
-}
