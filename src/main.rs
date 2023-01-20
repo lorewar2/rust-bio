@@ -1,5 +1,6 @@
 use bio::alignment::pairwise::Scoring;
-use bio::alignment::{poa::*, TextSlice}; //bandedpoa/ poa
+use bio::alignment::{poa::*, TextSlice};
+use petgraph::visit::IntoNeighborsDirected; //bandedpoa/ poa
 use std::{
     fs::File,
     fs::OpenOptions,
@@ -10,7 +11,11 @@ use chrono;
 use rand::{Rng,SeedableRng};
 use rand::rngs::StdRng;
 use petgraph::dot::{Dot, Config};
+use petgraph::{Directed, Graph};
 use std::collections::HashMap;
+use petgraph::graph::NodeIndex;
+use petgraph::Direction::Outgoing;
+use petgraph::Direction::Incoming;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
@@ -53,10 +58,8 @@ fn run(seqvec: Vec<String>) {
 
     //get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
-    let normal_graph = aligner.graph().map(|_, n| (*n) as char, |_, e| *e);
-    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph));
-    //let graph = aligner.poa.graph;
-    //println!("normal graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
+    //get the normal graph
+    let normal_graph = aligner.graph();
     ////////////////////////////
     //compressed poa alignment//
     ////////////////////////////
@@ -80,14 +83,9 @@ fn run(seqvec: Vec<String>) {
     let homopolymer_consensus;
     let homopolymer_topology;
     (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus(); //poa
-    //let graph = aligner.poa.graph;
-    //println!("homopolymer graph \n {:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
+    //get graph
+    let homopolymer_graph: &Graph<u8, i32, Directed, usize> = aligner.graph();
     //use homopolymer compressions sequences to make expanded consensus
-    // get graph
-    let homopolymer_graph = aligner.graph().map(|_, n| (*n) as char, |_, e| *e);
-    let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph));
-    //println!("{}", homopolymer_dot);
-    //println!("{}", normal_dot);
     let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymer_expanded) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
     //get the scores of expanded consensus compared to sequences
     let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
@@ -103,8 +101,6 @@ fn run(seqvec: Vec<String>) {
         print!("{}", *i as char);
     }
     print!("\nHomopolymer score: \t\t{}", homopolymer_score);
-    //print!("\nHomopolymer consensus freq:\t");
-    //print!("{:?}", homopolymer_consensus_freq);
     print!("\nExpanded consensus:\t\t");
     for i in &expanded_consensus{
         print!("{}", *i as char);
@@ -137,19 +133,26 @@ fn run(seqvec: Vec<String>) {
     
     //print the indices of graph
     println!("{:?} {:?} {:?} {:?} {:?} {:?}", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index);
-    //print the graphs
-    //println!("{:?}", normal_dot);
-    //println!("{:?}", homopolymer_dot);
     //modify the graphs to indicate 
-    modify_and_write_the_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index, normal_dot, homopolymer_dot);
+    modify_and_write_the_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index, normal_graph, homopolymer_graph);
 }
 
 fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, 
                                     normal_mismatch_indices: Vec<usize>, normal_insert_indices: Vec<usize>, normal_del_indices: Vec<usize>,
                                         homopolymer_mismatch_indices: Vec<usize>, homopolymer_insert_indices: Vec<usize>, homopolymer_del_indices: Vec<usize>,
-                                            mut normal_dot: String, mut homopolymer_dot: String) {
+                                            normal_graph: &Graph<u8, i32, Directed, usize>, homopolymer_graph: &Graph<u8, i32, Directed, usize>) {
     let mut count = 0;
+    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
+    let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph.map(|_, n| (*n) as char, |_, e| *e)));
+    //for (a, b) in array1.iter().zip(array2.iter()) {
+    //}
     for index in normal_mismatch_indices {
+        // find the nodes which are around the mismatch index
+        let displaying_nodes: Vec<usize> = vec![];
+        let mut immediate_neighbours = normal_graph.neighbors(NodeIndex::new(index));
+        while let Some(neighbour_node) = immediate_neighbours.next() {
+            println!("{}", neighbour_node.index());
+        }
         match normal_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
@@ -164,6 +167,7 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
     }
     count = 0;
     for index in normal_insert_indices {
+        
         match normal_dot.find(&format!("{} [", index)) {
             Some(mut x) => {
                 while normal_dot.chars().nth(x).unwrap() != ' ' {
