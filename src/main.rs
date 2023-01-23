@@ -1,5 +1,6 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
+use bio::io::fasta::Index;
 use petgraph::visit::IntoNeighborsDirected; //bandedpoa/ poa
 use std::{
     fs::File,
@@ -14,8 +15,7 @@ use petgraph::dot::{Dot, Config};
 use petgraph::{Directed, Graph};
 use std::collections::HashMap;
 use petgraph::graph::NodeIndex;
-use petgraph::Direction::Outgoing;
-use petgraph::Direction::Incoming;
+use std::fmt;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
@@ -27,7 +27,7 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(100, 10);
+    let seqvec = get_random_sequences_from_generator(1000, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -112,128 +112,193 @@ fn run(seqvec: Vec<String>) {
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&normal_consensus, &expanded_consensus);
-    let mismatch_index;
-    let insert_index;
-    let del_index;
-    let normal_mismatch_index;
-    let normal_insert_index;
-    let normal_del_index;
-    let homopolymer_mismatch_index;
-    let homopolymer_insert_index;
-    let homopolymer_del_index;
-    (normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index, mismatch_index, insert_index, del_index) 
-        = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
+    let mut saved_indices: IndexStruct;
+    saved_indices = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
     let (normal_rep, expanded_rep, count_rep) 
         = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
     //write results to file
-    write_alignment_data_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
-        &count_rep, seqnum as usize, mismatch_index,
-        insert_index, del_index);
     write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
-    
-    //print the indices of graph
-    println!("{:?} {:?} {:?} {:?} {:?} {:?}", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index);
     //modify the graphs to indicate 
-    modify_and_write_the_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", normal_mismatch_index, normal_insert_index, normal_del_index, homopolymer_mismatch_index, homopolymer_insert_index, homopolymer_del_index, normal_graph, homopolymer_graph);
+    saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
+    write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
+        &count_rep, seqnum as usize, &saved_indices);
 }
 
-fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, 
-                                    normal_mismatch_indices: Vec<usize>, normal_insert_indices: Vec<usize>, normal_del_indices: Vec<usize>,
-                                        homopolymer_mismatch_indices: Vec<usize>, homopolymer_insert_indices: Vec<usize>, homopolymer_del_indices: Vec<usize>,
-                                            normal_graph: &Graph<u8, i32, Directed, usize>, homopolymer_graph: &Graph<u8, i32, Directed, usize>) {
+fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct){
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
+        chrono::offset::Local::now(), FILENAME)
+        .expect("result file cannot be written");
+
+    let mut index = 0;
+    println!("{}", saved_indices);
+    while index + 50 < normal.len() {
+        let mut write_string: Vec<String> = vec![];
+        //count the mismatches, inserts and del in that range
+        let mut mismatch_count = 0;
+        let mut mismatch_struct_indices: Vec<usize> = vec![];
+        let mut insert_count = 0;
+        let mut insert_struct_indices: Vec<usize> = vec![];
+        let mut del_count = 0;
+        let mut del_struct_indices: Vec<usize> = vec![];
+        for mismatch_index in index..index + 50 {
+            if saved_indices.aligned_mismatch_indices.contains(&mismatch_index) {
+                mismatch_count += 1;
+                mismatch_struct_indices.push(saved_indices.aligned_mismatch_indices.iter().position(|&r| r == mismatch_index).unwrap());
+            }
+            if saved_indices.aligned_insert_indices.contains(&mismatch_index) {
+                insert_count += 1;
+                insert_struct_indices.push(saved_indices.aligned_insert_indices.iter().position(|&r| r == mismatch_index).unwrap());
+            }
+            if saved_indices.aligned_del_indices.contains(&mismatch_index) {
+                del_count += 1;
+                del_struct_indices.push(saved_indices.aligned_del_indices.iter().position(|&r| r == mismatch_index).unwrap());
+            }
+        }
+        write_string.push(format!("\n{}~{} out of {} (mismatches:{}, inserts:{}, deletions:{})\n", index, index + 50, normal.len(), mismatch_count, insert_count, del_count).to_string());
+        write_string.push("normal:".to_string());
+        for i in index..index + 50 {
+            match normal[i] {
+                55 => write_string.push("  _".to_string()),
+                65 => write_string.push("  A".to_string()),
+                67 => write_string.push("  C".to_string()),
+                71 => write_string.push("  G".to_string()),
+                84 => write_string.push("  T".to_string()),
+                _ => {},
+            }
+            if saved_indices.aligned_mismatch_indices.contains(&i) {
+                write_string.push("*".to_string());
+            }
+            else if saved_indices.aligned_insert_indices.contains(&i) {
+                write_string.push("%".to_string());
+            }
+            else if saved_indices.aligned_del_indices.contains(&i) {
+                write_string.push("?".to_string());
+            }
+            else {
+                write_string.push(" ".to_string());
+            }
+        }
+        write_string.push(format!("\nexpand:"));
+        for i in index..index + 50 {
+            match expanded[i] {
+                55 => write_string.push("  _".to_string()),
+                65 => write_string.push("  A".to_string()),
+                67 => write_string.push("  C".to_string()),
+                71 => write_string.push("  G".to_string()),
+                84 => write_string.push("  T".to_string()),
+                _ => {},
+            }
+            if saved_indices.aligned_mismatch_indices.contains(&i) {
+                write_string.push("*".to_string());
+            }
+            else if saved_indices.aligned_insert_indices.contains(&i) {
+                write_string.push("%".to_string());
+            }
+            else if saved_indices.aligned_del_indices.contains(&i) {
+                write_string.push("?".to_string());
+            }
+            else {
+                write_string.push(" ".to_string());
+            }
+        }
+        write_string.push("\n".to_string());
+        for j in 0..sequence_num {
+            write_string.push(format!("seq{:>3}:", j).to_string());
+            for i in index..index + 50 {
+                write_string.push(format!("{:>3},", count_representation[j][i]).to_string()); 
+            }
+            write_string.push("\n".to_string());
+        }
+        write_string.push("\n".to_string());
+        //push the graphs to the vector
+        for entry in &mismatch_struct_indices {
+            write_string.push("\nNormal Graph: mismatch\n".to_string());
+            write_string.push(saved_indices.normal_mismatch_graph_sections[*entry].clone());
+        }
+        for entry in &insert_struct_indices {
+            write_string.push("\nNormal Graph: insert\n".to_string());
+            write_string.push(saved_indices.normal_insert_graph_sections[*entry].clone());
+        }
+        for entry in &del_struct_indices {
+            write_string.push("\nNormal Graph: del\n".to_string());
+            write_string.push(saved_indices.normal_del_graph_sections[*entry].clone());
+        }
+        for entry in &mismatch_struct_indices {
+            write_string.push("\nHomopolymer Graph: mismatch\n".to_string());
+            write_string.push(saved_indices.homopolymer_mismatch_graph_sections[*entry].clone());
+        }
+        for entry in &insert_struct_indices {
+            write_string.push("\nHomopolymer Graph: del\n".to_string());
+            write_string.push(saved_indices.homopolymer_del_graph_sections[*entry].clone());
+        }
+        for entry in &del_struct_indices {
+            write_string.push("\nHomopolymer Graph: insert\n".to_string());
+            write_string.push(saved_indices.homopolymer_insert_graph_sections[*entry].clone());
+        }
+        
+        index = index + 50;
+        for entry in write_string{
+            //print!("{}", entry);
+            write!(file,
+                "{}",
+                entry)
+                .expect("result file cannot be written");
+        }
+    }
+}
+
+fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, mut saved_indices: IndexStruct,
+                                            normal_graph: &Graph<u8, i32, Directed, usize>, homopolymer_graph: &Graph<u8, i32, Directed, usize>)
+                                            -> IndexStruct {
     let mut count = 0;
     let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
     let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph.map(|_, n| (*n) as char, |_, e| *e)));
-    //for (a, b) in array1.iter().zip(array2.iter()) {
-    //}
-    for index in normal_mismatch_indices {
-        // find the nodes which are around the mismatch index
-        let displaying_nodes: Vec<usize> = vec![];
-        let mut immediate_neighbours = normal_graph.neighbors(NodeIndex::new(index));
-        while let Some(neighbour_node) = immediate_neighbours.next() {
-            println!("{}", neighbour_node.index());
-        }
-        match normal_dot.find(&format!("{} [", index)) {
-            Some(mut x) => {
-                while normal_dot.chars().nth(x).unwrap() != ' ' {
-                    x += 1;
-                }
-                //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
-                normal_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
-            },
-            None => {}
-        }
+
+    for index in &saved_indices.normal_mismatch_indices {
+        let graph_section = get_zoomed_graph_section (&normal_graph, &normal_dot, &index, &count, 0);
+        saved_indices.normal_mismatch_graph_sections.push(graph_section);
+        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 0);
         count += 1;
     }
     count = 0;
-    for index in normal_insert_indices {
-        
-        match normal_dot.find(&format!("{} [", index)) {
-            Some(mut x) => {
-                while normal_dot.chars().nth(x).unwrap() != ' ' {
-                    x += 1;
-                }
-                //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
-                normal_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
-            },
-            None => {}
-        }
+    for index in &saved_indices.normal_insert_indices {
+        let graph_section = get_zoomed_graph_section (&normal_graph, &normal_dot, &index, &count, 1);
+        saved_indices.normal_insert_graph_sections.push(graph_section);
+        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 1);
         count += 1;
     }
     count = 0;
-    for index in normal_del_indices {
-        match normal_dot.find(&format!("{} [", index)) {
-            Some(mut x) => {
-                while normal_dot.chars().nth(x).unwrap() != ' ' {
-                    x += 1;
-                }
-                //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
-                normal_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
-            },
-            None => {}
-        }
+    for index in &saved_indices.normal_del_indices {
+        let graph_section = get_zoomed_graph_section (&normal_graph, &normal_dot, &index, &count, 2);
+        saved_indices.normal_del_graph_sections.push(graph_section);
+        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 2);
         count += 1;
     }
     count = 0;
-    for index in homopolymer_mismatch_indices {
-        match homopolymer_dot.find(&format!("{} [", index)) {
-            Some(mut x) => {
-                while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
-                    x += 1;
-                }
-                //homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"green\" style = \"filled\"").to_string());
-                homopolymer_dot.replace_range(x + 13..x + 13,&format!("MisMatched {}: ", count).to_string());
-            },
-            None => {}
-        }
+    for index in &saved_indices.homopolymer_mismatch_indices {
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &homopolymer_dot, &index, &count, 0);
+        saved_indices.homopolymer_mismatch_graph_sections.push(graph_section);
+        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 0);
         count += 1;
     }
     count = 0;
-    for index in homopolymer_insert_indices {
-        match homopolymer_dot.find(&format!("{} [", index)) {
-            Some(mut x) => {
-                while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
-                    x += 1;
-                }
-                //homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
-                homopolymer_dot.replace_range(x + 13..x + 13,&format!("Inserted {}: ", count).to_string());
-            },
-            None => {}
-        }
+    for index in &saved_indices.homopolymer_insert_indices {
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &homopolymer_dot, &index, &count, 1);
+        saved_indices.homopolymer_insert_graph_sections.push(graph_section);
+        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 1);
         count += 1;
     }
     count = 0;
-    for index in homopolymer_del_indices {
-        match homopolymer_dot.find(&format!("{} [", index)) {
-            Some(mut x) => {
-                while homopolymer_dot.chars().nth(x).unwrap() != ' ' {
-                    x += 1;
-                }
-                //homopolymer_dot.replace_range(x + 17..x + 17,&format!("color = \"blue\" style = \"filled\"").to_string());
-                homopolymer_dot.replace_range(x + 13..x + 13,&format!("Deleted {}: ", count).to_string());
-            },
-            None => {}
-        }
+    for index in &saved_indices.homopolymer_del_indices {
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &homopolymer_dot, &index, &count, 2);
+        saved_indices.homopolymer_del_graph_sections.push(graph_section);
+        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 2);
         count += 1;
     } 
     let mut normal_file = OpenOptions::new()
@@ -254,10 +319,102 @@ fn modify_and_write_the_graphs (normal_filename: impl AsRef<Path>, homopolymer_f
         "{:?} \nFILE: {}\n{}",
         chrono::offset::Local::now(), FILENAME, homopolymer_dot)
         .expect("result file cannot be written");
+    saved_indices
     //println!("{}", normal_dot);
     //println!("{}", homopolymer_dot);
 }
 
+fn modify_dot_graph_with_highlight (mut dot: String, focus_node: &usize, error_count: &usize, description_type: usize) -> String {
+    match dot.find(&format!(" {} [", focus_node)) {
+        Some(mut x) => {
+            while dot.chars().nth(x).unwrap() != ' ' {
+                x += 1;
+            }
+            //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
+            match description_type {
+                0 => {dot.replace_range(x + 17..x + 17,&format!("Mismatch {}: ", error_count).to_string());},
+                1 => {dot.replace_range(x + 17..x + 17,&format!("Insert {}: ", error_count).to_string());},
+                2 => {dot.replace_range(x + 17..x + 17,&format!("Delete {}: ", error_count).to_string());},
+                _ => {}
+            };
+            
+        },
+        None => {}
+    };
+    dot
+}
+fn get_zoomed_graph_section (normal_graph: &Graph<u8, i32, Directed, usize>, normal_dot: &String, focus_node: &usize, error_count: &usize, description_type: usize)-> String {
+    let mut graph_section= "".to_string();
+    let displaying_nodes: Vec<usize> = find_neighbouring_indices (2, *focus_node, normal_graph);
+        let mut graph_section_nodes: String = "".to_string();
+        let mut graph_section_edges: String = "".to_string();
+        //find the position in the dot file and add to the graph section
+        for node in &displaying_nodes {
+            //get the nodes from the dot file
+            match normal_dot.find(&format!(" {} [", node)) {
+                Some(start) => {
+                    let mut char_seq = vec![];
+                    let mut end = start;
+                    while true {
+                        char_seq.push(normal_dot.chars().nth(end).unwrap());
+                        if normal_dot.chars().nth(end).unwrap() == '\n' {
+                            break;
+                        }
+                        end += 1;
+                    }
+                    //add from start to end to the graph_section string
+                    graph_section_nodes = char_seq.iter().collect::<String>();
+                },
+                None => {}
+            }
+            graph_section = format!("{}{}", graph_section, graph_section_nodes).to_string();
+            graph_section_nodes = "".to_string();
+        }
+        for node in &displaying_nodes {
+            //get the edges from the dot file
+            let edge_entries: Vec<usize> = normal_dot.match_indices(&format!(" {} ->", node)).map(|(i, _)|i).collect();
+            for edge in edge_entries {
+                let mut char_seq = vec![];
+                    let mut end = edge;
+                    while true {
+                        char_seq.push(normal_dot.chars().nth(end).unwrap());
+                        if normal_dot.chars().nth(end).unwrap() == '\n' {
+                            break;
+                        }
+                        end += 1;
+                    }
+                    //add from start to end to the graph_section string
+                    graph_section_edges = format!("{}{}", graph_section_edges, char_seq.iter().collect::<String>()).to_string();
+            }
+            graph_section = format!("{}{}", graph_section, graph_section_edges).to_string();
+            graph_section_edges = "".to_string();
+        }
+        //modifying the section graph with the highlight
+        graph_section = modify_dot_graph_with_highlight (graph_section, focus_node, error_count, description_type);
+        //make it a dot graph
+        graph_section = format!("digraph {{\n{} }}", graph_section);
+    graph_section
+}
+
+fn find_neighbouring_indices (num_of_iterations: usize, focus_node: usize, graph: &Graph<u8, i32, Directed, usize> ) -> Vec<usize> {
+    let mut indices: Vec<usize> = vec![];
+    if num_of_iterations <= 0 {
+        return indices;
+    }
+    let mut immediate_neighbours = graph.neighbors_undirected(NodeIndex::new(focus_node));
+    while let Some(neighbour_node) = immediate_neighbours.next() {
+        if indices.contains(&neighbour_node.index()) == false{
+            indices.push(neighbour_node.index());
+        }
+        let obtained_indices = find_neighbouring_indices(num_of_iterations - 1, neighbour_node.index(), graph);
+        for obtained_index in obtained_indices {
+            if indices.contains(&obtained_index) == false {
+                indices.push(obtained_index);
+            }
+        }
+    }
+    indices 
+}
 fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i32) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(SEED);
     //vector to save all the sequences 
@@ -530,7 +687,7 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
 }
 
 fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::alignment::Alignment, homopolymer_expand: &Vec<u8>, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
-                            -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>) {
+                            -> IndexStruct {
 
     let mut normal_mismatches: Vec<usize> = vec![];
     let mut normal_insertions: Vec<usize> = vec![];
@@ -636,7 +793,23 @@ fn get_indices_for_debug(normal: &Vec<u8>, expanded: &Vec<u8>, alignment: &bio::
     for index in 0..homopolymer_deletions.len() {
         homopolymer_deletions[index] = homopolymer_topo[homopolymer_deletions[index] as usize] as usize;
     }
-    (normal_mismatches, normal_insertions, normal_deletions, homopolymer_mismatches, homopolymer_insertions, homopolymer_deletions, alignment_mismatches, alignment_insertions, alignment_deletions)
+    IndexStruct {
+        normal_mismatch_indices: normal_mismatches,
+        normal_mismatch_graph_sections: vec![],
+        normal_insert_indices: normal_insertions,
+        normal_insert_graph_sections: vec![],
+        normal_del_indices: normal_deletions,
+        normal_del_graph_sections: vec![],
+        homopolymer_mismatch_indices: homopolymer_mismatches,
+        homopolymer_mismatch_graph_sections: vec![],
+        homopolymer_insert_indices: homopolymer_insertions,
+        homopolymer_insert_graph_sections: vec![],
+        homopolymer_del_indices: homopolymer_deletions,
+        homopolymer_del_graph_sections: vec![],
+        aligned_mismatch_indices: alignment_mismatches,
+        aligned_insert_indices: alignment_insertions,
+        aligned_del_indices: alignment_deletions,
+    }
 }
 fn get_alignment_with_count_for_debug(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment, count: &Vec<Vec<u32>>, sequence_num: usize) -> (Vec<u8>, Vec<u8>, Vec<Vec<u32>>){
     let mut vec1_representation = vec![];
@@ -721,6 +894,35 @@ fn get_alignment_with_count_for_debug(vector1: &Vec<u8>, vector2: &Vec<u8>, alig
     //write_alignment_data_fasta_file("./results/consensus.fa", &vec1_representation, &vec2_representation, &count_representation, sequence_num);
 }
 //structs here
+pub struct IndexStruct {
+    pub normal_mismatch_indices: Vec<usize>,
+    pub normal_mismatch_graph_sections: Vec<String>,
+    pub normal_insert_indices: Vec<usize>,
+    pub normal_insert_graph_sections: Vec<String>,
+    pub normal_del_indices: Vec<usize>,
+    pub normal_del_graph_sections: Vec<String>,
+
+    pub homopolymer_mismatch_indices: Vec<usize>,
+    pub homopolymer_mismatch_graph_sections: Vec<String>,
+    pub homopolymer_insert_indices: Vec<usize>,
+    pub homopolymer_insert_graph_sections: Vec<String>,
+    pub homopolymer_del_indices: Vec<usize>,
+    pub homopolymer_del_graph_sections: Vec<String>,
+
+    pub aligned_mismatch_indices: Vec<usize>,
+    pub aligned_insert_indices: Vec<usize>,
+    pub aligned_del_indices: Vec<usize>,
+}
+impl fmt::Display for IndexStruct {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "nm{:?} ni{:?} nd{:?} hm{:?} hi{:?} hd{:?} am{:?} ai{:?} ad{:?}",
+            self.normal_mismatch_indices, self.normal_insert_indices, self.normal_del_indices,
+            self.homopolymer_mismatch_indices, self.homopolymer_insert_indices, self.homopolymer_del_indices,
+            self.aligned_mismatch_indices, self.aligned_insert_indices, self.aligned_del_indices
+            )
+    }
+}
 pub struct HomopolymerSequence {
     pub bases: Vec<u8>,
     pub frequencies: Vec<u32>,
@@ -791,102 +993,6 @@ fn write_filtered_data_fasta_file(filename: impl AsRef<Path>, seqvec: &Vec<Strin
     }
 }
 
-fn write_alignment_data_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, mismatch_indices: Vec<usize>, insert_indices: Vec<usize>, del_indices: Vec<usize>){
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    writeln!(file,
-        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
-        chrono::offset::Local::now(), FILENAME)
-        .expect("result file cannot be written");
-
-    let mut index = 0;
-    while index + 50 < normal.len() {
-        let mut write_string: Vec<String> = vec![];
-        //count the mismatches, inserts and del in that range
-        let mut mismatch_count = 0;
-        let mut insert_count = 0;
-        let mut del_count = 0;
-        for mismatch_index in index..index + 50 {
-            if mismatch_indices.contains(&mismatch_index) {
-                mismatch_count += 1;
-            }
-            if insert_indices.contains(&mismatch_index) {
-                insert_count += 1;
-            }
-            if del_indices.contains(&mismatch_index) {
-                del_count += 1;
-            }
-        }
-        write_string.push(format!("{}~{} out of {} (mismatches:{}, inserts:{}, deletions:{})\n", index, index + 50, normal.len(), mismatch_count, insert_count, del_count).to_string());
-        write_string.push("normal:".to_string());
-        for i in index..index + 50 {
-            match normal[i] {
-                55 => write_string.push("  _".to_string()),
-                65 => write_string.push("  A".to_string()),
-                67 => write_string.push("  C".to_string()),
-                71 => write_string.push("  G".to_string()),
-                84 => write_string.push("  T".to_string()),
-                _ => {},
-            }
-            if mismatch_indices.contains(&i) {
-                write_string.push("*".to_string());
-            }
-            else if insert_indices.contains(&i) {
-                write_string.push("%".to_string());
-            }
-            else if del_indices.contains(&i) {
-                write_string.push("?".to_string());
-            }
-            else {
-                write_string.push(" ".to_string());
-            }
-        }
-        write_string.push(format!("\nexpand:"));
-        for i in index..index + 50 {
-            match expanded[i] {
-                55 => write_string.push("  _".to_string()),
-                65 => write_string.push("  A".to_string()),
-                67 => write_string.push("  C".to_string()),
-                71 => write_string.push("  G".to_string()),
-                84 => write_string.push("  T".to_string()),
-                _ => {},
-            }
-            if mismatch_indices.contains(&i) {
-                write_string.push("*".to_string());
-            }
-            else if insert_indices.contains(&i) {
-                write_string.push("%".to_string());
-            }
-            else if del_indices.contains(&i) {
-                write_string.push("?".to_string());
-            }
-            else {
-                write_string.push(" ".to_string());
-            }
-        }
-        write_string.push("\n".to_string());
-        
-        for j in 0..sequence_num {
-            write_string.push(format!("seq{:>3}:", j).to_string());
-            for i in index..index + 50 {
-                write_string.push(format!("{:>3},", count_representation[j][i]).to_string()); 
-            }
-            write_string.push("\n".to_string());
-        }
-        write_string.push("\n".to_string());
-        index = index + 50;
-        for entry in write_string{
-            //print!("{}", entry);
-            write!(file,
-                "{}",
-                entry)
-                .expect("result file cannot be written");
-        }
-    }
-}
 //print stuff here
 fn print_consensus_with_count(normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize) {
     let mut index = 0;
