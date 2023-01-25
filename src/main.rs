@@ -27,7 +27,7 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(1000, 10);
+    let seqvec = get_random_sequences_from_generator(100, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -261,42 +261,42 @@ fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRe
     let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph.map(|_, n| (*n) as char, |_, e| *e)));
 
     for index in &saved_indices.normal_mismatch_indices {
-        let graph_section = get_zoomed_graph_section (&normal_graph, &normal_dot, &index, &count, 0);
+        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 0);
         saved_indices.normal_mismatch_graph_sections.push(graph_section);
         normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 0);
         count += 1;
     }
     count = 0;
     for index in &saved_indices.normal_insert_indices {
-        let graph_section = get_zoomed_graph_section (&normal_graph, &normal_dot, &index, &count, 1);
+        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 1);
         saved_indices.normal_insert_graph_sections.push(graph_section);
         normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 1);
         count += 1;
     }
     count = 0;
     for index in &saved_indices.normal_del_indices {
-        let graph_section = get_zoomed_graph_section (&normal_graph, &normal_dot, &index, &count, 2);
+        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 2);
         saved_indices.normal_del_graph_sections.push(graph_section);
         normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 2);
         count += 1;
     }
     count = 0;
     for index in &saved_indices.homopolymer_mismatch_indices {
-        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &homopolymer_dot, &index, &count, 0);
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 0);
         saved_indices.homopolymer_mismatch_graph_sections.push(graph_section);
         homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 0);
         count += 1;
     }
     count = 0;
     for index in &saved_indices.homopolymer_insert_indices {
-        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &homopolymer_dot, &index, &count, 1);
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 1);
         saved_indices.homopolymer_insert_graph_sections.push(graph_section);
         homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 1);
         count += 1;
     }
     count = 0;
     for index in &saved_indices.homopolymer_del_indices {
-        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &homopolymer_dot, &index, &count, 2);
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 2);
         saved_indices.homopolymer_del_graph_sections.push(graph_section);
         homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 2);
         count += 1;
@@ -327,14 +327,14 @@ fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRe
 fn modify_dot_graph_with_highlight (mut dot: String, focus_node: &usize, error_count: &usize, description_type: usize) -> String {
     match dot.find(&format!(" {} [", focus_node)) {
         Some(mut x) => {
-            while dot.chars().nth(x).unwrap() != ' ' {
+            while dot.chars().nth(x).unwrap() != '[' {
                 x += 1;
             }
             //normal_dot.replace_range(x + 17..x + 17,&format!("color = \"red\" style = \"filled\"").to_string());
             match description_type {
-                0 => {dot.replace_range(x + 17..x + 17,&format!("Mismatch {}: ", error_count).to_string());},
-                1 => {dot.replace_range(x + 17..x + 17,&format!("Insert {}: ", error_count).to_string());},
-                2 => {dot.replace_range(x + 17..x + 17,&format!("Delete {}: ", error_count).to_string());},
+                0 => {dot.replace_range(x + 12..x + 12,&format!("Mismatch {}: ", error_count).to_string());},
+                1 => {dot.replace_range(x + 12..x + 12,&format!("Insert {}: ", error_count).to_string());},
+                2 => {dot.replace_range(x + 12..x + 12,&format!("Delete {}: ", error_count).to_string());},
                 _ => {}
             };
             
@@ -343,56 +343,58 @@ fn modify_dot_graph_with_highlight (mut dot: String, focus_node: &usize, error_c
     };
     dot
 }
-fn get_zoomed_graph_section (normal_graph: &Graph<u8, i32, Directed, usize>, normal_dot: &String, focus_node: &usize, error_count: &usize, description_type: usize)-> String {
+
+fn get_zoomed_graph_section (normal_graph: &Graph<u8, i32, Directed, usize>, focus_node: &usize, error_count: &usize, description_type: usize)-> String {
     let mut graph_section= "".to_string();
+    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
     let displaying_nodes: Vec<usize> = find_neighbouring_indices (2, *focus_node, normal_graph);
-        let mut graph_section_nodes: String = "".to_string();
-        let mut graph_section_edges: String = "".to_string();
-        //find the position in the dot file and add to the graph section
-        for node in &displaying_nodes {
-            //get the nodes from the dot file
-            match normal_dot.find(&format!(" {} [", node)) {
-                Some(start) => {
-                    let mut char_seq = vec![];
-                    let mut end = start;
-                    while true {
-                        char_seq.push(normal_dot.chars().nth(end).unwrap());
-                        if normal_dot.chars().nth(end).unwrap() == '\n' {
-                            break;
-                        }
-                        end += 1;
-                    }
-                    //add from start to end to the graph_section string
-                    graph_section_nodes = char_seq.iter().collect::<String>();
-                },
-                None => {}
-            }
-            graph_section = format!("{}{}", graph_section, graph_section_nodes).to_string();
-            graph_section_nodes = "".to_string();
-        }
-        for node in &displaying_nodes {
-            //get the edges from the dot file
-            let edge_entries: Vec<usize> = normal_dot.match_indices(&format!(" {} ->", node)).map(|(i, _)|i).collect();
-            for edge in edge_entries {
+    let mut graph_section_nodes: String = "".to_string();
+    let mut graph_section_edges: String = "".to_string();
+    //find the position in the dot file and add to the graph section
+    for node in &displaying_nodes {
+        //get the nodes from the dot file
+        match normal_dot.find(&format!(" {} [", node)) {
+            Some(start) => {
                 let mut char_seq = vec![];
-                    let mut end = edge;
-                    while true {
-                        char_seq.push(normal_dot.chars().nth(end).unwrap());
-                        if normal_dot.chars().nth(end).unwrap() == '\n' {
-                            break;
-                        }
-                        end += 1;
+                let mut end = start;
+                while true {
+                    char_seq.push(normal_dot.chars().nth(end).unwrap());
+                    if normal_dot.chars().nth(end).unwrap() == '\n' {
+                        break;
                     }
-                    //add from start to end to the graph_section string
-                    graph_section_edges = format!("{}{}", graph_section_edges, char_seq.iter().collect::<String>()).to_string();
-            }
-            graph_section = format!("{}{}", graph_section, graph_section_edges).to_string();
-            graph_section_edges = "".to_string();
+                    end += 1;
+                }
+                //add from start to end to the graph_section string
+                graph_section_nodes = char_seq.iter().collect::<String>();
+            },
+            None => {}
         }
-        //modifying the section graph with the highlight
-        graph_section = modify_dot_graph_with_highlight (graph_section, focus_node, error_count, description_type);
-        //make it a dot graph
-        graph_section = format!("digraph {{\n{} }}", graph_section);
+        graph_section = format!("{}{}", graph_section, graph_section_nodes).to_string();
+        graph_section_nodes = "".to_string();
+    }
+    for node in &displaying_nodes {
+        //get the edges from the dot file
+        let edge_entries: Vec<usize> = normal_dot.match_indices(&format!(" {} ->", node)).map(|(i, _)|i).collect();
+        for edge in edge_entries {
+            let mut char_seq = vec![];
+                let mut end = edge;
+                while true {
+                    char_seq.push(normal_dot.chars().nth(end).unwrap());
+                    if normal_dot.chars().nth(end).unwrap() == '\n' {
+                        break;
+                    }
+                    end += 1;
+                }
+                //add from start to end to the graph_section string
+                graph_section_edges = format!("{}{}", graph_section_edges, char_seq.iter().collect::<String>()).to_string();
+        }
+        graph_section = format!("{}{}", graph_section, graph_section_edges).to_string();
+        graph_section_edges = "".to_string();
+    }
+    //modifying the section graph with the highlight
+    graph_section = modify_dot_graph_with_highlight (graph_section, focus_node, error_count, description_type);
+    //make it a dot graph
+    graph_section = format!("digraph {{\n{} }}", graph_section);
     graph_section
 }
 
