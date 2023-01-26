@@ -1,7 +1,7 @@
 use bio::alignment::pairwise::Scoring;
-use bio::alignment::{poa::*, TextSlice};
+use bio::alignment::{poa::*, TextSlice}; //bandedpoa/ poa
 use bio::io::fasta::Index;
-use petgraph::visit::IntoNeighborsDirected; //bandedpoa/ poa
+use petgraph::visit::IntoNeighborsDirected;
 use std::{
     fs::File,
     fs::OpenOptions,
@@ -12,10 +12,12 @@ use chrono;
 use rand::{Rng,SeedableRng};
 use rand::rngs::StdRng;
 use petgraph::dot::{Dot, Config};
-use petgraph::{Directed, Graph};
+use petgraph::{Directed, Graph, Incoming, Outgoing};
 use std::collections::HashMap;
 use petgraph::graph::NodeIndex;
-use std::fmt;
+use std::{fmt, cmp};
+use statrs::function::factorial::binomial;
+use num_traits::pow;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
@@ -24,6 +26,8 @@ const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/161808690.fasta";
 const SEED: u64 = 0;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
+const ERROR_PROBABILITY: f64 = 0.90;
+const DEBUG: bool = false;
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
@@ -109,19 +113,87 @@ fn run(seqvec: Vec<String>) {
     println!("");
 
     //DEBUGGING
-    let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-    let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
-    let alignment = aligner.global(&normal_consensus, &expanded_consensus);
-    let mut saved_indices: IndexStruct;
-    saved_indices = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
-    let (normal_rep, expanded_rep, count_rep) 
-        = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
-    //write results to file
-    write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
-    //modify the graphs to indicate 
-    saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
-    write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
-        &count_rep, seqnum as usize, &saved_indices);
+    if DEBUG == true {
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&normal_consensus, &expanded_consensus);
+        let mut saved_indices: IndexStruct;
+        saved_indices = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
+        let (normal_rep, expanded_rep, count_rep) 
+            = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
+        //write results to file
+        write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
+        //modify the graphs to indicate 
+        saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
+        write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
+            &count_rep, seqnum as usize, &saved_indices);
+    }
+}
+
+fn base_quality_score_calculation (total_seq: usize, base: u8, graph_index: usize, graph: &Graph<u8, i32, Directed, usize>) -> f64 {
+    //variable initialization
+    let mut error_score: f64 = 0.0;
+    let mut quality_score = 0.0;
+    let mut num_seq_through_base = 0;
+    let prob_base_a = 0.25;
+    let prob_base_c = 0.25;
+    let prob_base_g = 0.25;
+    let prob_base_t = 0.25;
+    let mut prob_data_given_a = 0.0;
+    let mut prob_data_given_c = 0.0;
+    let mut prob_data_given_g = 0.0;
+    let mut prob_data_given_t = 0.0;
+    let node_index = NodeIndex::new(graph_index);
+
+    //find out how many sequences run through the base in graph
+    //edges directed toward the base
+    let incoming_nodes: Vec<NodeIndex<usize>> = graph.neighbors_directed(node_index, Incoming).collect();
+    let mut incoming_weight = 0;
+    for incoming_node in incoming_nodes {
+        let mut edges = graph.edges_connecting(node_index, incoming_node);
+        while let Some(edge) = edges.next() {
+            incoming_weight += edge.weight().clone();
+        }
+    }
+    //edges directed from the base
+    let outgoing_nodes: Vec<NodeIndex<usize>> = graph.neighbors_directed(node_index, Outgoing).collect();
+    let mut outgoing_weight = 0;
+    for outgoing_node in outgoing_nodes {
+        let mut edges = graph.edges_connecting(node_index, outgoing_node);
+        while let Some(edge) = edges.next() {
+            outgoing_weight += edge.weight().clone();
+        }
+    }
+    //get the number of seq passing through this base
+    num_seq_through_base = cmp::max(outgoing_weight, incoming_weight);
+    //calculate all the probablilities
+
+    //get the probability base given data
+    let sum_of_probabilities = (prob_data_given_a * prob_base_a) + (prob_data_given_c * prob_base_c) + (prob_data_given_g * prob_base_g) + (prob_data_given_t * prob_base_t);
+    error_score = 1.0 - match base {
+        65 => {
+            (prob_data_given_a * prob_base_a) / sum_of_probabilities
+        },
+        67 => {
+            (prob_data_given_c * prob_base_c) / sum_of_probabilities
+        },
+        71 => {
+            (prob_data_given_g * prob_base_g) / sum_of_probabilities
+        },
+        84 => {
+            (prob_data_given_t * prob_base_t) / sum_of_probabilities
+        },
+        _ => {0.0},
+    };
+    quality_score = (-10.00) * error_score.log10(); 
+    quality_score
+}
+
+fn calculate_binomial (n: usize, k: usize, prob: f64) -> f64 {
+    let binomial_coeff = binomial(n as u64, k as u64);
+    let success: f64 = prob.powf(n as f64);
+    let failure: f64 = (1.00 - prob).powf(k as f64);
+    binomial_coeff * success * failure
 }
 
 fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct){
