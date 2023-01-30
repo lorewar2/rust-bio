@@ -1,6 +1,7 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice}; //bandedpoa/ poa
 use bio::io::fasta::Index;
+use ndarray::indices;
 use petgraph::visit::IntoNeighborsDirected;
 use std::{
     fs::File,
@@ -24,14 +25,14 @@ const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/161808690.fasta";
-const SEED: u64 = 55;
+const SEED: u64 = 0;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const DEBUG: bool = true;
 
 fn main() {
     //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(5, 10);
+    let seqvec = get_random_sequences_from_generator(10, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
     //to get consensus score from file (abPOA test)
@@ -128,21 +129,129 @@ fn run(seqvec: Vec<String>) {
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
             &count_rep, seqnum as usize, &saved_indices);
     }
-    let indices = get_indices_of_parallel_nodes_of_target(seqnum as usize, 3, normal_graph);
-    println!("These indices == {:?}", indices);
-    for index in indices {
-        println!("index: {} num_of_seq {}", index, find_the_seq_passing_through(index, normal_graph));
-    }
+    get_consensus_quality_scores(seqnum as usize, normal_consensus, normal_topology, normal_graph);
 }
 
-fn get_indices_of_parallel_nodes_of_target (total_seq: usize, graph_index: usize, graph: &Graph<u8, i32, Directed, usize>) -> Vec<usize> {
+fn get_consensus_quality_scores(seq_num: usize, consensus: Vec<u8>, topology: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> Vec<f64> {
+    let mut quality_scores: Vec<f64> = vec![];
+    //run all the consensus through get indices
+    for i in 0..consensus.len() {
+        let (mut temp_indices, mut temp_indices_seq, mut temp_seq_num) = get_indices_of_parallel_nodes_of_target(seq_num as usize, topology[i], graph);
+        //check if indices are present in prev consensus
+        // remove the indices which are in the passed consensus
+        // mark for removal 
+        let mut remove_indices: Vec<usize> = vec![];
+        let slice = &topology[0..i];
+        println!("slice values {:?}", slice);
+        
+        for j in 1..temp_indices.len() {
+            if slice.contains(&temp_indices[j]) {
+                remove_indices.push(j);
+            }
+        }
+        remove_indices.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        for remove_index in remove_indices {
+            temp_indices.remove(remove_index);
+            temp_seq_num -= temp_indices_seq[remove_index];
+            temp_indices_seq.remove(remove_index);
+        }
+        println!("{:?}", temp_indices);
+        //calculate quality score
+        quality_scores.push(base_quality_score_calculation(temp_seq_num, temp_indices, temp_indices_seq, consensus[i], graph));
+        println!("");
+    }
+    for quality_score in &quality_scores {
+        println!("{}", quality_score);
+    }
+    quality_scores
+}
+
+fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> f64 {
+    //variable initialization
+    let error_score: f64;
+    let quality_score;
+
+    let prob_base_a = 0.25;
+    let prob_base_c = 0.25;
+    let prob_base_g = 0.25;
+    let prob_base_t = 0.25;
+    
+    let mut base_a_count = 0;
+    let mut base_c_count = 0;
+    let mut base_g_count = 0;
+    let mut base_t_count = 0;
+    //find out how many sequences run through each base
+    //match the indices to the base and ++
+    for index in 0..indices_of_parallel_nodes.len() {
+        match graph.raw_nodes()[indices_of_parallel_nodes[index]].weight {
+            65 => {
+                base_a_count += seq_through_parallel_nodes[index];
+            },
+            67 => {
+                base_c_count += seq_through_parallel_nodes[index];
+            },
+            71 => {
+                base_g_count += seq_through_parallel_nodes[index];
+            },
+            84 => {
+                base_t_count += seq_through_parallel_nodes[index];
+            },
+            _ => {
+                //nothing
+                },
+        }
+    }
+    
+    println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
+    //calculate all the probablilities
+    let prob_data_given_a = calculate_binomial(total_seq, base_a_count, ERROR_PROBABILITY);
+    let prob_data_given_c = calculate_binomial(total_seq, base_c_count, ERROR_PROBABILITY);
+    let prob_data_given_g = calculate_binomial(total_seq, base_g_count, ERROR_PROBABILITY);
+    let prob_data_given_t = calculate_binomial(total_seq, base_t_count, ERROR_PROBABILITY);
+    println!("D|A:{} D|C:{} D|G:{} D|T:{}", prob_data_given_a, prob_data_given_c, prob_data_given_g, prob_data_given_t);
+    //get the error score
+    let sum_of_probabilities = (prob_data_given_a * prob_base_a) + (prob_data_given_c * prob_base_c) + (prob_data_given_g * prob_base_g) + (prob_data_given_t * prob_base_t);
+    error_score =  1.0 - match base {
+        65 => {
+            println!("Focus base : A" );
+            (prob_data_given_a * prob_base_a) / sum_of_probabilities
+        },
+        67 => {
+            println!("Focus base : C" );
+            (prob_data_given_c * prob_base_c) / sum_of_probabilities
+        },
+        71 => {
+            println!("Focus base : G" );
+            (prob_data_given_g * prob_base_g) / sum_of_probabilities
+        },
+        84 => {
+            println!("Focus base : T" );
+            (prob_data_given_t * prob_base_t) / sum_of_probabilities
+        },
+        _ => {0.0},
+    };
+    quality_score = (-10.00) * error_score.log10();
+    println!("quality score: {}", quality_score);
+    quality_score
+}
+
+fn calculate_binomial (n: usize, k: usize, prob: f64) -> f64 {
+    let binomial_coeff = binomial(n as u64, k as u64);
+    let success: f64 = prob.powf(k as f64);
+    let failure: f64 = (1.00 - prob).powf((n - k) as f64);
+    binomial_coeff * success * failure
+}
+
+fn get_indices_of_parallel_nodes_of_target (total_seq: usize, graph_index: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, usize) {
     let mut required_nodes = vec![graph_index];
+    let mut required_num_incoming_seq = vec![];
     //find out how many sequences run through the base in graph
     let num_seq_through_target_base = find_the_seq_passing_through (graph_index, graph);
-    println!("num of seq passing {} / {}", num_seq_through_target_base, total_seq);
+    required_num_incoming_seq.push(num_seq_through_target_base);
+    //println!("num of seq passing {} / {}", num_seq_through_target_base, total_seq);
     if num_seq_through_target_base == total_seq {
         // nothing to do return the num_seq_corrosponding to other bases as 0
-        required_nodes
+        (required_nodes, required_num_incoming_seq, num_seq_through_target_base)
     }
     else {
         // iterate until all the parallel bases are found,
@@ -150,41 +259,48 @@ fn get_indices_of_parallel_nodes_of_target (total_seq: usize, graph_index: usize
         let mut back_nodes: Vec<usize> = vec![graph_index];
         let mut nodes_travelled: Vec<usize> = vec![graph_index];
         let mut skip_by_index = 1;
-        while seq_found_so_far < total_seq {
-            (required_nodes, back_nodes, nodes_travelled, seq_found_so_far) = go_back_one_and_get_the_target_indices(required_nodes, back_nodes, nodes_travelled, graph, seq_found_so_far, skip_by_index);
+        while seq_found_so_far < total_seq  && skip_by_index < 5{
+            (required_nodes, required_num_incoming_seq, back_nodes, nodes_travelled, seq_found_so_far) = go_back_one_and_get_the_target_indices(required_nodes, required_num_incoming_seq, &back_nodes, nodes_travelled, graph, seq_found_so_far, skip_by_index);
             skip_by_index += 1;
-            println!(" seq so far {} ", seq_found_so_far);
+            //println!(" seq so far {} ", seq_found_so_far);
         }
-        required_nodes
+        (required_nodes, required_num_incoming_seq, seq_found_so_far)
     }
 }
 
-fn go_back_one_and_get_the_target_indices (mut required_nodes: Vec<usize>, back_nodes: Vec<usize>, mut nodes_travelled: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>, mut seq_found_so_far: usize, skip_by_index: usize) -> (Vec<usize>, Vec<usize>, Vec<usize>, usize){
+fn go_back_one_and_get_the_target_indices (mut required_nodes: Vec<usize>, mut required_num_incoming_seq: Vec<usize>, back_nodes: &Vec<usize>, mut nodes_travelled: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>, mut seq_found_so_far: usize, skip_by_index: usize) -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>, usize){
     let mut new_back_nodes: Vec<usize> = vec![];
+    //println!("Go back one fucntion");
     //populate a list of nodes which are one edge behind the current backnodes
     for back_node in back_nodes {
-        let node_index = NodeIndex::new(back_node);
+        let node_index = NodeIndex::new(*back_node);
         let incoming_nodes: Vec<NodeIndex<usize>> = graph.neighbors_directed(node_index, Incoming).collect();
         for incoming_node in incoming_nodes {
             new_back_nodes.push(incoming_node.index());
+            //println!("incoming nodes {}", incoming_node.index());
         }
     }
+    let mut temp_nodes_travelled = vec![];
     for back_node in &new_back_nodes {
         if nodes_travelled.contains(back_node) == true {
             continue;
         }
-        nodes_travelled.push(*back_node);
+        //println!("back nodes {}", back_node);
+        
         //get a list of nodes which are skip_by_index edges away from the back node and not in the nodes_travelled
         let (acquired_indices, acquired_num_incoming_seq) = find_most_forward_neighbour_indices(skip_by_index, back_node, graph);
         for index in 0..acquired_indices.len() {
-            if nodes_travelled.contains(&acquired_indices[index]) == false {
+            if nodes_travelled.contains(&acquired_indices[index]) == false  && new_back_nodes.contains(&acquired_indices[index]) == false {
                 required_nodes.push(acquired_indices[index]);
-                nodes_travelled.push(acquired_indices[index]);
+                required_num_incoming_seq.push(acquired_num_incoming_seq[index]);
+                temp_nodes_travelled.push(acquired_indices[index]);
                 seq_found_so_far += acquired_num_incoming_seq[index];
             }
         }
+        temp_nodes_travelled.push(*back_node);
     }
-    (required_nodes, new_back_nodes, nodes_travelled, seq_found_so_far)
+    nodes_travelled = [nodes_travelled, temp_nodes_travelled].concat();
+    (required_nodes, required_num_incoming_seq, new_back_nodes, nodes_travelled, seq_found_so_far)
 }
 
 fn find_most_forward_neighbour_indices (num_of_iterations: usize, focus_node: &usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>) {
@@ -240,44 +356,6 @@ fn find_the_seq_passing_through (target_node: usize, graph: &Graph<u8, i32, Dire
     cmp::max(outgoing_weight, incoming_weight) as usize
 }
 
-fn base_quality_score_calculation (total_seq: usize, base: u8, graph_index: usize, graph: &Graph<u8, i32, Directed, usize>) -> f64 {
-    //variable initialization
-    let mut error_score: f64 = 0.0;
-    let mut quality_score = 0.0;
-    let mut num_seq_through_base = 0;
-    let prob_base_a = 0.25;
-    let prob_base_c = 0.25;
-    let prob_base_g = 0.25;
-    let prob_base_t = 0.25;
-    
-    //find out how many sequences run through each base
-    // get the nodes at the consensus position
-
-    
-
-    //calculate all the probablilities
-    let (prob_data_given_a, prob_data_given_c, prob_data_given_g, prob_data_given_t) : (f64, f64, f64, f64) = (1.0, 1.0, 1.0, 1.0);
-    //get the error score
-    let sum_of_probabilities = (prob_data_given_a * prob_base_a) + (prob_data_given_c * prob_base_c) + (prob_data_given_g * prob_base_g) + (prob_data_given_t * prob_base_t);
-    error_score = 1.0 - match base {
-        65 => {
-            (prob_data_given_a * prob_base_a) / sum_of_probabilities
-        },
-        67 => {
-            (prob_data_given_c * prob_base_c) / sum_of_probabilities
-        },
-        71 => {
-            (prob_data_given_g * prob_base_g) / sum_of_probabilities
-        },
-        84 => {
-            (prob_data_given_t * prob_base_t) / sum_of_probabilities
-        },
-        _ => {0.0},
-    };
-    quality_score = (-10.00) * error_score.log10(); 
-    quality_score
-}
-
 fn find_neighbouring_indices (num_of_iterations: usize, focus_node: usize, graph: &Graph<u8, i32, Directed, usize> ) -> Vec<usize> {
     let mut indices: Vec<usize> = vec![];
     if num_of_iterations <= 0 {
@@ -296,13 +374,6 @@ fn find_neighbouring_indices (num_of_iterations: usize, focus_node: usize, graph
         }
     }
     indices 
-}
-
-fn calculate_binomial (n: usize, k: usize, prob: f64) -> f64 {
-    let binomial_coeff = binomial(n as u64, k as u64);
-    let success: f64 = prob.powf(n as f64);
-    let failure: f64 = (1.00 - prob).powf(k as f64);
-    binomial_coeff * success * failure
 }
 
 fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct){
