@@ -2,7 +2,7 @@ use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice}; //bandedpoa/ poa
 use bio::io::fasta::Index;
 use ndarray::indices;
-use petgraph::visit::IntoNeighborsDirected;
+use petgraph::visit::{IntoNeighborsDirected, IntoEdgesDirected};
 use std::{
     fs::File,
     fs::OpenOptions,
@@ -35,11 +35,6 @@ fn main() {
     let seqvec = get_random_sequences_from_generator(10, 10);
     //println!("generated string: {}", seqvec[0]);
     run(seqvec);
-    //to get consensus score from file (abPOA test)
-    //let abpoa_consensus = get_consensus_from_file("./data/cons.fa");
-    //let abpoa_consensus_score = get_consensus_score(&seqvec, &abpoa_consensus);
-    //println!("abpoa score: {:?}", abpoa_consensus_score);
-    //write_filtered_data_fasta_file("./results/filtered_data.fa", &seqvec);
 }
 
 fn run(seqvec: Vec<String>) {
@@ -137,7 +132,7 @@ fn get_consensus_quality_scores(seq_num: usize, consensus: Vec<u8>, topology: Ve
     //run all the consensus through get indices
     for i in 0..consensus.len() {
         let (mut temp_indices, mut temp_indices_seq, mut temp_seq_num) = get_indices_of_parallel_nodes_of_target(seq_num as usize, topology[i], graph);
-        //check if indices are present in prev consensus
+        // check if indices are present in prev consensus
         // remove the indices which are in the passed consensus
         // mark for removal 
         let mut remove_indices: Vec<usize> = vec![];
@@ -288,7 +283,7 @@ fn go_back_one_and_get_the_target_indices (mut required_nodes: Vec<usize>, mut r
         //println!("back nodes {}", back_node);
         
         //get a list of nodes which are skip_by_index edges away from the back node and not in the nodes_travelled
-        let (acquired_indices, acquired_num_incoming_seq) = find_most_forward_neighbour_indices(skip_by_index, back_node, graph);
+        let (acquired_indices, acquired_num_incoming_seq, _) = find_most_front_neighbour_indices(skip_by_index, back_node, graph);
         for index in 0..acquired_indices.len() {
             if nodes_travelled.contains(&acquired_indices[index]) == false  && new_back_nodes.contains(&acquired_indices[index]) == false {
                 required_nodes.push(acquired_indices[index]);
@@ -303,33 +298,40 @@ fn go_back_one_and_get_the_target_indices (mut required_nodes: Vec<usize>, mut r
     (required_nodes, required_num_incoming_seq, new_back_nodes, nodes_travelled, seq_found_so_far)
 }
 
-fn find_most_forward_neighbour_indices (num_of_iterations: usize, focus_node: &usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>) {
-    let mut indices: Vec<usize> = vec![];
-    let mut seq_incoming: Vec<usize> = vec![];
+fn find_most_front_neighbour_indices (num_of_iterations: usize, focus_node: &usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
+    // initialize required vectors
+    let mut parallel_indices: Vec<usize> = vec![];
+    let mut parallel_num_seq_incoming: Vec<usize> = vec![];
+    let mut parallel_parent_node: Vec<usize> = vec![];
+    // break when the recursion reach target
     if num_of_iterations <= 0 {
-        return (indices, seq_incoming);
+        return (parallel_indices, parallel_num_seq_incoming, parallel_parent_node);
     }
-    let mut forward_neighbours = graph.neighbors_directed(NodeIndex::new(*focus_node), Outgoing);
-    while let Some(neighbour_node) = forward_neighbours.next() {
-        if indices.contains(&neighbour_node.index()) == false && num_of_iterations == 1 {
-            indices.push(neighbour_node.index());
-            // get the incoming edge weight
+    // get the nodes with a directed edge from the focus node
+    let mut front_neighbours = graph.neighbors_directed(NodeIndex::new(*focus_node), Outgoing);
+    //iterate through the neighbours
+    while let Some(front_neighbour) = front_neighbours.next() {
+        // save the unique final node index to indices vector and edge weight to seq_incoming 
+        if num_of_iterations == 1 {
+            parallel_parent_node.push(*focus_node);
+            parallel_indices.push(front_neighbour.index());
             let mut incoming_weight = 0;
-            let mut edges = graph.edges_connecting(NodeIndex::new(*focus_node), neighbour_node);
+            let mut edges = graph.edges_connecting(NodeIndex::new(*focus_node), front_neighbour);
             while let Some(edge) = edges.next() {
                 incoming_weight += edge.weight().clone();
             }
-            seq_incoming.push(incoming_weight as usize);
+            parallel_num_seq_incoming.push(incoming_weight as usize);
         }
-        let (obtained_indices, obtained_seq_incoming)  = find_most_forward_neighbour_indices(num_of_iterations - 1, &neighbour_node.index(), graph);
-        for index in 0..obtained_indices.len() {
-            if indices.contains(&obtained_indices[index]) == false && (num_of_iterations - 1) == 1 {
-                indices.push(obtained_indices[index]);
-                seq_incoming.push(obtained_seq_incoming[index]);
-            }
+        // iterate through neighbours of neighours
+        let (obtained_indices, obtained_seq_incoming, obatined_parent_node)  = find_most_front_neighbour_indices(num_of_iterations - 1, &front_neighbour.index(), graph);
+        // save the obtained values
+        if num_of_iterations - 1 == 1 {
+            parallel_indices = [parallel_indices, obtained_indices].concat();
+            parallel_num_seq_incoming = [parallel_num_seq_incoming, obtained_seq_incoming].concat();
+            parallel_parent_node = [parallel_parent_node, obatined_parent_node].concat();
         }
     }
-    (indices, seq_incoming)
+    (parallel_indices, parallel_num_seq_incoming, parallel_parent_node)
 }
 
 fn find_the_seq_passing_through (target_node: usize, graph: &Graph<u8, i32, Directed, usize>) -> usize {
