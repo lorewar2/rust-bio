@@ -54,6 +54,8 @@ thiserror = "1"
 anyhow = "1"
 rand = ">=0.7.3, < 0.9"
 chrono = "0.4.23"
+logaddexp = "0.1.1"
+libm = "0.1.4"
 
 [dependencies.vec_map]
 version = "0.8"
