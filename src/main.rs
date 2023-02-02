@@ -153,10 +153,10 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     let error_score: f64;
     let quality_score;
 
-    let prob_base_a = 0.25;
-    let prob_base_c = 0.25;
-    let prob_base_g = 0.25;
-    let prob_base_t = 0.25;
+    let ln_prob_base_a = 0.25_f64.ln();
+    let ln_prob_base_c = 0.25_f64.ln();
+    let ln_prob_base_g = 0.25_f64.ln();
+    let ln_prob_base_t = 0.25_f64.ln();
     
     let mut base_a_count = 0;
     let mut base_c_count = 0;
@@ -186,34 +186,32 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     
     println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
     //calculate all the probablilities
-    let prob_data_given_a = calculate_binomial(total_seq, base_a_count, ERROR_PROBABILITY);
-    let prob_data_given_c = calculate_binomial(total_seq, base_c_count, ERROR_PROBABILITY);
-    let prob_data_given_g = calculate_binomial(total_seq, base_g_count, ERROR_PROBABILITY);
-    let prob_data_given_t = calculate_binomial(total_seq, base_t_count, ERROR_PROBABILITY);
-    println!("D|A:{} D|C:{} D|G:{} D|T:{}", prob_data_given_a, prob_data_given_c, prob_data_given_g, prob_data_given_t);
+    let ln_prob_data_given_a = calculate_binomial(total_seq, base_a_count, ERROR_PROBABILITY).ln();
+    let ln_prob_data_given_c = calculate_binomial(total_seq, base_c_count, ERROR_PROBABILITY).ln();
+    let ln_prob_data_given_g = calculate_binomial(total_seq, base_g_count, ERROR_PROBABILITY).ln();
+    let ln_prob_data_given_t = calculate_binomial(total_seq, base_t_count, ERROR_PROBABILITY).ln();
+    println!("D|A:{} D|C:{} D|G:{} D|T:{}", ln_prob_data_given_a, ln_prob_data_given_c, ln_prob_data_given_g, ln_prob_data_given_t);
     //get the error score *change to log space*
-    let sum_of_probabilities = (prob_data_given_a * prob_base_a) + (prob_data_given_c * prob_base_c) + (prob_data_given_g * prob_base_g) + (prob_data_given_t * prob_base_t);
-    let mut log_sum_of_probablities = (prob_data_given_a * prob_base_a).ln().ln_add_exp((prob_data_given_c * prob_base_c).ln());
-    log_sum_of_probablities.ln_add_exp((prob_data_given_g * prob_base_g).ln());
-    log_sum_of_probablities.ln_add_exp((prob_data_given_t * prob_base_t).ln());
+    let mut ln_sum_of_probablities = (ln_prob_data_given_a + ln_prob_base_a).ln_add_exp((ln_prob_data_given_c + ln_prob_base_c));
+    ln_sum_of_probablities = ln_sum_of_probablities.ln_add_exp(ln_prob_data_given_g + ln_prob_base_g);
+    ln_sum_of_probablities = ln_sum_of_probablities.ln_add_exp(ln_prob_data_given_t + ln_prob_base_t);
 
-    println!("{} {}", exp(log_sum_of_probablities), sum_of_probabilities);
     error_score =  1.0 - match base {
         65 => {
             println!("Focus base : A" );
-            (prob_data_given_a * prob_base_a) / sum_of_probabilities
+            exp(ln_prob_data_given_a + ln_prob_base_a - ln_sum_of_probablities)
         },
         67 => {
             println!("Focus base : C" );
-            (prob_data_given_c * prob_base_c) / sum_of_probabilities
+            exp(ln_prob_data_given_c + ln_prob_base_c - ln_sum_of_probablities)
         },
         71 => {
             println!("Focus base : G" );
-            (prob_data_given_g * prob_base_g) / sum_of_probabilities
+            exp(ln_prob_data_given_g + ln_prob_base_g - ln_sum_of_probablities)
         },
         84 => {
             println!("Focus base : T" );
-            (prob_data_given_t * prob_base_t) / sum_of_probabilities
+            exp(ln_prob_data_given_t + ln_prob_base_t - ln_sum_of_probablities)
         },
         _ => {0.0},
     };
