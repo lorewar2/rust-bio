@@ -26,17 +26,44 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const FILENAME: &str = "./data/161808690.fasta";
+const FILENAME: &str = "./data/PacBioReads/46793296.fasta";
+const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/46793296.fastq";
 const SEED: u64 = 54;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const DEBUG: bool = true;
 
 fn main() {
-    //let seqvec = get_fasta_sequences_from_file(FILENAME);
-    let seqvec = get_random_sequences_from_generator(10, 10);
-    //println!("generated string: {}", seqvec[0]);
+    //read the pacbio consensus
+    let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
+    let mut seqvec: Vec<String> = vec![pac_bio_consensus];
+    seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
+    //let seqvec = get_random_sequences_from_generator(10, 10);
     run(seqvec);
+}
+
+fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
+    let file = File::open(filename).expect("no such file");
+    let buf = BufReader::new(file);
+    let lines: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
+    let consensus: String = lines[1].clone().into();
+    consensus
+}
+
+fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_score: Vec<f64>, consensus: &Vec<u8>) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    for index in 0..consensus.len() {
+        writeln!(file,
+            "{} -> {}",
+            consensus[index] as char, quality_score[index])
+            .expect("result file cannot be written");
+    }
 }
 
 fn run(seqvec: Vec<String>) {
@@ -126,10 +153,15 @@ fn run(seqvec: Vec<String>) {
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
             &count_rep, seqnum as usize, &saved_indices);
     }
-    get_consensus_quality_scores(seqnum as usize, normal_consensus, normal_topology, normal_graph);
+    // calculate and get the quality scores
+    let quality_scores = get_consensus_quality_scores(seqnum as usize, &normal_consensus, normal_topology, normal_graph);
+    // write the quality scores to a file
+    write_quality_scores_to_file("./results/quality_scores.fa", quality_scores, &normal_consensus)
+
+    
 }
 
-fn get_consensus_quality_scores(seq_num: usize, consensus: Vec<u8>, topology: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> Vec<f64> {
+fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> Vec<f64> {
     let mut quality_scores: Vec<f64> = vec![];
     //run all the consensus through get indices
     for i in 0..consensus.len() {
@@ -191,8 +223,9 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     let ln_prob_data_given_g = calculate_binomial(total_seq, base_g_count, ERROR_PROBABILITY).ln();
     let ln_prob_data_given_t = calculate_binomial(total_seq, base_t_count, ERROR_PROBABILITY).ln();
     println!("D|A:{} D|C:{} D|G:{} D|T:{}", ln_prob_data_given_a, ln_prob_data_given_c, ln_prob_data_given_g, ln_prob_data_given_t);
-    //get the error score *change to log space*
-    let mut ln_sum_of_probablities = (ln_prob_data_given_a + ln_prob_base_a).ln_add_exp((ln_prob_data_given_c + ln_prob_base_c));
+    //get the error score *changed to log space*
+    let mut ln_sum_of_probablities = ln_prob_data_given_a + ln_prob_base_a;
+    ln_sum_of_probablities = ln_sum_of_probablities.ln_add_exp(ln_prob_data_given_c + ln_prob_base_c);
     ln_sum_of_probablities = ln_sum_of_probablities.ln_add_exp(ln_prob_data_given_g + ln_prob_base_g);
     ln_sum_of_probablities = ln_sum_of_probablities.ln_add_exp(ln_prob_data_given_t + ln_prob_base_t);
 
@@ -255,7 +288,6 @@ fn get_indices_of_parallel_nodes_of_target (mut skip_nodes: Vec<usize>, total_se
             while skip_nodes[1..skip_nodes.len()].iter().any(|&i| parallel_nodes.contains(&i)) {
                 let position = parallel_nodes.iter().position(|&r| skip_nodes.contains(&r)).unwrap();
                 parallel_nodes.remove(position);
-                println!("removing");
             }
         }
         (parallel_nodes, parallel_num_incoming_seq, seq_found_so_far)
@@ -741,17 +773,6 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
     }
     randomvec
 
-}
-
-fn get_consensus_from_file(filename: impl AsRef<Path>) -> Vec<u8> {
-    let mut consensus: Vec<u8> = vec![];
-    let file = File::open(filename).expect("no such file");
-    let buf = BufReader::new(file);
-    let lines: Vec<String> = buf.lines()
-        .map(|l| l.expect("Could not parse line"))
-        .collect();
-    consensus = (*lines[1].as_bytes()).to_vec();
-    consensus
 }
 
 fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
