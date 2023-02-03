@@ -502,7 +502,7 @@ impl<F: MatchFunc> Poa<F> {
         while let Some(node) = topo.next(&self.graph) {
             topo_indices.push(node);
             if max_index < node.index(){
-                max_index = node.index()
+                max_index = node.index();
             }
         }
         topo_indices.reverse();

@@ -21,6 +21,7 @@ use statrs::function::factorial::binomial;
 use num_traits::pow;
 use logaddexp::LogAddExp;
 use libm::exp;
+use petgraph::visit::Topo;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
@@ -28,17 +29,17 @@ const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/PacBioReads/46793296.fasta";
 const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/46793296.fastq";
-const SEED: u64 = 54;
+const SEED: u64 = 56;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const DEBUG: bool = true;
 
 fn main() {
     //read the pacbio consensus
-    let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
-    let mut seqvec: Vec<String> = vec![pac_bio_consensus];
-    seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
-    //let seqvec = get_random_sequences_from_generator(10, 10);
+    //let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
+    //let mut seqvec: Vec<String> = vec![pac_bio_consensus];
+    //seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
+    let seqvec = get_random_sequences_from_generator(20, 10);
     run(seqvec);
 }
 
@@ -165,19 +166,103 @@ fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: V
     let mut quality_scores: Vec<f64> = vec![];
     //run all the consensus through get indices
     for i in 0..consensus.len() {
+        // prev method eg using skip back skip front 
         // skip the indices which are in the passed consensus
-        let mut skip_nodes: Vec<usize> = topology[0 .. i + 1].to_vec();
-        skip_nodes.reverse();
-        let (temp_indices, temp_indices_seq,temp_seq_num) = get_indices_of_parallel_nodes_of_target(skip_nodes, seq_num as usize, topology[i], graph);
-        println!("parallel node indices {:?}", temp_indices);
+        //let mut skip_nodes: Vec<usize> = topology[0 .. i + 1].to_vec();
+        //skip_nodes.reverse();
+        //let (temp_indices, temp_indices_seq,temp_seq_num) = get_indices_of_parallel_nodes_of_target(skip_nodes, seq_num as usize, topology[i], graph);
+        //println!("parallel node indices {:?}", temp_indices);
         //calculate quality score
-        quality_scores.push(base_quality_score_calculation(temp_seq_num, temp_indices, temp_indices_seq, consensus[i], graph));
-        println!("");
-    }
-    for index in 0..quality_scores.len() {
-        println!("{} -> {}", consensus[index] as char, quality_scores[index]);
+        //quality_scores.push(base_quality_score_calculation(temp_seq_num, temp_indices, temp_indices_seq, consensus[i], graph));
+        //println!("");
+        // new method using topology cut
+
     }
     quality_scores
+}
+
+fn get_parallel_nodes_with_topology_cut (total_seq: usize, target_node: usize, graph: &Graph<u8, i32, Directed, usize>) -> Vec<usize> {
+    // vector initialization
+    let mut topology = Topo::new(graph);
+    let mut topologically_ordered_nodes = Vec::new();
+    let mut parallel_nodes: Vec<usize> = vec![];
+
+    // make a topologically ordered list
+    while let Some(node) = topology.next(graph) {
+        topologically_ordered_nodes.push(node.index());
+    }
+    // find the position of the target node in topology list
+    let target_node_topological_position = topologically_ordered_nodes.iter().position(|&r| r == target_node).unwrap();
+
+    // check if the target node corrosponds with all the sequences
+    let num_seq_through_target_base = find_the_seq_passing_through (target_node, graph);
+    if num_seq_through_target_base == total_seq {
+        return parallel_nodes;
+    }
+    // go back skip_count and go forward skip_count + 3 and check if parent and child are before and after target_node_position,
+    // iterate skip_count until all sequences are found, break on 5
+    let mut seq_found_so_far = num_seq_through_target_base;
+    let mut back_iteration = 1;
+    while seq_found_so_far < total_seq  && back_iteration < 5{
+        (parallel_nodes, seq_found_so_far) = go_back_and_find_crossing_nodes(parallel_nodes, seq_found_so_far, target_node, back_iteration, &topologically_ordered_nodes, target_node_topological_position, graph);
+        back_iteration += 1;
+    }
+    parallel_nodes
+}
+
+fn go_back_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut seq_found_so_far: usize, focus_node: usize, back_iteration: usize, topologically_ordered_nodes: &Vec<usize>, target_node_position: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, usize) {
+    // get a list of x back_iterations back nodes
+    let back_nodes_list = get_xiterations_back_nodes(back_iteration, vec![], focus_node, graph);
+
+    // get a list of all forward nodes 0..(back_iterations + 3) for all the back_nodes
+    let mut forward_node_list: Vec<usize> = vec![];
+    for back_node in &back_nodes_list {
+        let temp_forward_list = get_forward_nodes (back_iteration + 3, vec![], *back_node, graph);
+        for temp_forward_node in &temp_forward_list {
+            if forward_node_list.contains(temp_forward_node) {
+                forward_node_list.push(*temp_forward_node);
+            }
+        }
+    }
+
+    // for all the forward nodes get their incoming nodes (parents) and see whether the edge crosses target node topological position
+    
+    println!("{:?}", back_nodes_list);
+    (parallel_nodes, seq_found_so_far)
+}
+
+fn get_forward_nodes (iteration: usize, mut forward_node_list: Vec<usize>, focus_node: usize, graph: &Graph<u8, i32, Directed, usize>) -> Vec<usize> {
+    if iteration <= 0 {
+        return forward_node_list;
+    }
+    //get the back nodes of the target
+    let mut forward_neighbours = graph.neighbors_directed(NodeIndex::new(focus_node), Outgoing);
+    //iterate through the neighbours
+    while let Some(forward_neighbour) = forward_neighbours.next() {
+        if !forward_node_list.contains(&forward_neighbour.index()){
+            forward_node_list.push(forward_neighbour.index());
+            forward_node_list = get_back_nodes (iteration - 1, forward_node_list, forward_neighbour.index(), graph);
+        }
+    }
+    forward_node_list
+}
+
+fn get_xiterations_back_nodes (iteration: usize, mut back_node_list: Vec<usize>, focus_node: usize, graph: &Graph<u8, i32, Directed, usize>) -> Vec<usize> {
+    if iteration <= 0 {
+        return back_node_list;
+    }
+    //get the back nodes of the target
+    let mut back_neighbours = graph.neighbors_directed(NodeIndex::new(focus_node), Incoming);
+    //iterate through the neighbours
+    while let Some(back_neighbour) = back_neighbours.next() {
+        if iteration == 1 {
+            if !back_node_list.contains(&back_neighbour.index()){
+                back_node_list.push(back_neighbour.index());
+            }
+        }
+        back_node_list = get_xiterations_back_nodes (iteration - 1, back_node_list, back_neighbour.index(), graph);
+    }
+    back_node_list
 }
 
 fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> f64 {
@@ -309,6 +394,7 @@ fn get_back_nodes (iteration: usize, mut back_node_list: Vec<usize>, focus_node:
     }
     back_node_list
 }
+
 fn go_back_one_and_get_the_target_indices (mut parallel_nodes: Vec<usize>, mut parallel_num_incoming_seq: Vec<usize>, prev_back_nodes: &Vec<usize>, 
                                             skip_nodes: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>, mut seq_found_so_far: usize, 
                                             skip_by_index: usize, mut skip_nodes_internal: Vec<usize>, mut skip_nodes_internal_parents: Vec<usize>) 
