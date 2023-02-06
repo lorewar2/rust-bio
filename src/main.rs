@@ -32,14 +32,16 @@ const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/46793296.fastq";
 const SEED: u64 = 54;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
-const DEBUG: bool = true;
+const QUALITY_SCORE: bool = true;
+const HOMOPOLYMER_DEBUG: bool = false;
+const HOMOPOLYMER: bool = false;
 
 fn main() {
     //read the pacbio consensus
-    //let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
-    //let mut seqvec: Vec<String> = vec![pac_bio_consensus];
-    //seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
-    let seqvec = get_random_sequences_from_generator(100, 10);
+    let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
+    let mut seqvec: Vec<String> = vec![pac_bio_consensus];
+    seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
+    //let seqvec = get_random_sequences_from_generator(1000, 10);
     run(seqvec);
 }
 
@@ -53,7 +55,7 @@ fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
     consensus
 }
 
-fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_score: Vec<f64>, consensus: &Vec<u8>) {
+fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_score: Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>) {
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
@@ -61,8 +63,8 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_score: Vec<
         .unwrap();
     for index in 0..consensus.len() {
         writeln!(file,
-            "{} -> {}",
-            consensus[index] as char, quality_score[index])
+            "{}[{}]\t -> {:.3} \tvalid = {}",
+            consensus[index] as char, topology[index], quality_score[index], !validity[index])
             .expect("result file cannot be written");
     }
 }
@@ -90,83 +92,86 @@ fn run(seqvec: Vec<String>) {
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
     //get the normal graph
     let normal_graph = aligner.graph();
-    ////////////////////////////
-    //compressed poa alignment//
-    ////////////////////////////
-    
-    //make homopolymer compression vector
-    let mut homopolymer_vec: Vec<HomopolymerSequence> = vec![];
-    for seq in &seqvec{
-        homopolymer_vec.push(HomopolymerSequence::new(seq.as_bytes()));
-    }
 
-    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
-    seqnum = 0;
-    let mut aligner = Aligner::new(scoring, &homopolymer_vec[0].bases);
-    for homopolymer_seq in &homopolymer_vec{
-        if seqnum != 0 {
-            aligner.global(&homopolymer_seq.bases).add_to_graph();
+    if HOMOPOLYMER {
+        ////////////////////////////
+        //compressed poa alignment//
+        ////////////////////////////
+        
+        //make homopolymer compression vector
+        let mut homopolymer_vec: Vec<HomopolymerSequence> = vec![];
+        for seq in &seqvec{
+            homopolymer_vec.push(HomopolymerSequence::new(seq.as_bytes()));
         }
-        seqnum += 1;
-        println!("Sequence {} processed", seqnum);
-    }
-    let homopolymer_consensus;
-    let homopolymer_topology;
-    (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus(); //poa
-    //get graph
-    let homopolymer_graph: &Graph<u8, i32, Directed, usize> = aligner.graph();
-    //use homopolymer compressions sequences to make expanded consensus
-    let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymer_expanded) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
-    //get the scores of expanded consensus compared to sequences
-    let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
-    
-    //print the results
-    print!("Normal consensus:\t\t");
-    for i in &normal_consensus{
-        print!("{}", *i as char);
-    }
-    print!("\nNormal consensus score:\t\t{}", normal_score);
-    print!("\nHomopolymer consensus:\t\t");
-    for i in &homopolymer_consensus{
-        print!("{}", *i as char);
-    }
-    print!("\nHomopolymer score: \t\t{}", homopolymer_score);
-    print!("\nExpanded consensus:\t\t");
-    for i in &expanded_consensus{
-        print!("{}", *i as char);
-    }
-    print!("\nExpanded consensus score:\t{}", expanded_score);
-    println!("");
 
-    //DEBUGGING
-    if DEBUG == true {
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&normal_consensus, &expanded_consensus);
-        let mut saved_indices: IndexStruct;
-        saved_indices = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
-        let (normal_rep, expanded_rep, count_rep) 
-            = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
-        //write results to file
-        write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
-        //modify the graphs to indicate 
-        saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
-        write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
-            &count_rep, seqnum as usize, &saved_indices);
+        let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
+        seqnum = 0;
+        let mut aligner = Aligner::new(scoring, &homopolymer_vec[0].bases);
+        for homopolymer_seq in &homopolymer_vec{
+            if seqnum != 0 {
+                aligner.global(&homopolymer_seq.bases).add_to_graph();
+            }
+            seqnum += 1;
+            println!("Sequence {} processed", seqnum);
+        }
+        let homopolymer_consensus;
+        let homopolymer_topology;
+        (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus(); //poa
+        //get graph
+        let homopolymer_graph: &Graph<u8, i32, Directed, usize> = aligner.graph();
+        //use homopolymer compressions sequences to make expanded consensus
+        let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymer_expanded) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
+        //get the scores of expanded consensus compared to sequences
+        let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
+
+        if HOMOPOLYMER_DEBUG {
+            let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+            let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
+            let alignment = aligner.global(&normal_consensus, &expanded_consensus);
+            let mut saved_indices: IndexStruct;
+            saved_indices = get_indices_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
+            let (normal_rep, expanded_rep, count_rep) 
+                = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
+            //write results to file
+            write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
+            //modify the graphs to indicate 
+            saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
+            write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
+                &count_rep, seqnum as usize, &saved_indices);
+            //print the results
+            print!("Normal consensus:\t\t");
+            for i in &normal_consensus{
+                print!("{}", *i as char);
+            }
+            print!("\nNormal consensus score:\t\t{}", normal_score);
+            print!("\nHomopolymer consensus:\t\t");
+            for i in &homopolymer_consensus{
+                print!("{}", *i as char);
+            }
+            print!("\nHomopolymer score: \t\t{}", homopolymer_score);
+            print!("\nExpanded consensus:\t\t");
+            for i in &expanded_consensus{
+                print!("{}", *i as char);
+            }
+            print!("\nExpanded consensus score:\t{}", expanded_score);
+            println!("");
+        }
     }
     // calculate and get the quality scores
-    let quality_scores = get_consensus_quality_scores(seqnum as usize, &normal_consensus, normal_topology, normal_graph);
+    let (quality_scores, validity) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
     for index in 0..quality_scores.len() {
-        println!("{} -> {}", normal_consensus[index], quality_scores[index]);
+        println!("{}[{}]\t -> {:.3} \tvalid = {}", normal_consensus[index] as char, normal_topology[index], quality_scores[index], !validity[index]);
     }
     // write the quality scores to a file
-    //write_quality_scores_to_file("./results/quality_scores.fa", quality_scores, &normal_consensus)
+    write_quality_scores_to_file("./results/quality_scores.fa", quality_scores, &normal_consensus, &normal_topology, &validity);
+    write_quality_score_graph("./results/normal_graph.fa", normal_graph);
 
     
 }
 
-fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> Vec<f64> {
+fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>) {
     let mut quality_scores: Vec<f64> = vec![];
+    let mut validity: Vec<bool> = vec![];
     //run all the consensus through get indices
     for i in 0..consensus.len() {
         // prev method eg using skip back skip front 
@@ -185,9 +190,11 @@ fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: V
             print!("[{}={}] ", *parallel_node, graph.raw_nodes()[*parallel_node].weight as char);
         }
         println!("");
-        quality_scores.push(base_quality_score_calculation(seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph));
+        let (temp_quality_score, temp_count_mismatch) = base_quality_score_calculation(seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
+        quality_scores.push(temp_quality_score);
+        validity.push(temp_count_mismatch);
     }
-    quality_scores
+    (quality_scores, validity)
 }
 
 fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<usize>, target_node: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>) {
@@ -195,6 +202,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
     let mut topology = Topo::new(graph);
     let mut topologically_ordered_nodes = Vec::new();
     let mut parallel_nodes: Vec<usize> = vec![];
+    let mut parallel_node_parents: Vec<usize> = vec![];
     let mut parallel_num_incoming_seq: Vec<usize> = vec![];
 
     // make a topologically ordered list
@@ -220,11 +228,12 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
     let mut seq_found_so_far = num_seq_through_target_base;
     let mut bubble_size = 1;
     while seq_found_so_far < total_seq  && bubble_size < 5{
-        (parallel_nodes, parallel_num_incoming_seq, seq_found_so_far) = check_neighbours_and_find_crossing_nodes (parallel_nodes, parallel_num_incoming_seq, seq_found_so_far, target_node, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
+        (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far) = check_neighbours_and_find_crossing_nodes (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, target_node, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
         // remove the skip nodes if present in parallel nodes ** obsolete **
         while skip_nodes.iter().any(|&i| parallel_nodes.contains(&i)) {
             let position = parallel_nodes.iter().position(|&r| skip_nodes.contains(&r)).unwrap();
             parallel_nodes.remove(position);
+            parallel_node_parents.remove(position);
             parallel_num_incoming_seq.remove(position);
         }
         bubble_size += 1;
@@ -234,7 +243,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
     (parallel_nodes, parallel_num_incoming_seq)
 }
 
-fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut parallel_num_incoming_seq: Vec<usize>, mut seq_found_so_far: usize, focus_node: usize, bubble_size: usize, topologically_ordered_nodes: &Vec<usize>, target_node_position: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, usize) {
+fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut parallel_node_parents: Vec<usize>, mut parallel_num_incoming_seq: Vec<usize>, mut seq_found_so_far: usize, focus_node: usize, bubble_size: usize, topologically_ordered_nodes: &Vec<usize>, target_node_position: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, Vec<usize>, usize) {
     // get a list of x bubble edge nodes
     //let edge_nodes_list = find_nth_iteration_neighbouring_indices(bubble_size, vec![], focus_node, graph);
     
@@ -250,7 +259,7 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
             }
         }
     }
-    //println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
+    println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
     // get the two slices of topologically_ordered_list
     let back_slice = topologically_ordered_nodes[0..target_node_position].to_vec();
     let front_slice = topologically_ordered_nodes[target_node_position + 1..topologically_ordered_nodes.len()].to_vec();
@@ -259,11 +268,20 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
     for edge_node in &edge_nodes_list {
         // get the parents of the edge node
         let edge_node_parents = get_back_nodes (1, vec![], *edge_node, graph);
-        for edge_node_parent in &edge_node_parents {
+        'parent_loop: for edge_node_parent in &edge_node_parents {
             // if the parent is in back section and node is in front section add to parallel nodes
-            if back_slice.contains(edge_node_parent) && front_slice.contains(edge_node) {
-                //parallel_nodes.push(*edge_node_parent);
+            if back_slice.contains(edge_node_parent) && front_slice.contains(edge_node) && (*edge_node_parent != focus_node) {
+                if parallel_nodes.contains(edge_node) && parallel_node_parents.contains(edge_node_parent) {
+                    // go through the parallel nodes and if there is a match check if the same parent and continue if so
+                    for index in 0..parallel_nodes.len() {
+                        if (parallel_nodes[index] == *edge_node) && (parallel_node_parents[index] == *edge_node_parent) {
+                            continue 'parent_loop;
+                        }  
+                    }
+                }
                 parallel_nodes.push(*edge_node);
+                parallel_node_parents.push(*edge_node_parent);
+                print!("success node {} parent {}\n", *edge_node, *edge_node_parent);
                 // get the edge weight and add to seq_found_so_far
                 let mut incoming_weight = 0;
                 let mut edges = graph.edges_connecting(NodeIndex::new(*edge_node_parent), NodeIndex::new(*edge_node));
@@ -275,7 +293,7 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
             }
         }
     }
-    (parallel_nodes, parallel_num_incoming_seq, seq_found_so_far)
+    (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far)
 }
 
 fn find_nth_iteration_neighbouring_indices (num_of_iterations: usize, mut neighbour_nodes: Vec<usize>, focus_node: usize, graph: &Graph<u8, i32, Directed, usize> ) -> Vec<usize> {
@@ -344,8 +362,9 @@ fn get_xiterations_back_nodes (iteration: usize, mut back_node_list: Vec<usize>,
     back_node_list
 }
 
-fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> f64 {
+fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> (f64, bool) {
     //variable initialization
+    let mut count_mismatch: bool = false;
     let error_score: f64;
     let quality_score;
 
@@ -381,6 +400,9 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     }
     
     println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
+    if (base_a_count + base_c_count + base_g_count + base_t_count) != total_seq {
+        count_mismatch = true;
+    }
     //calculate all the probablilities
     let ln_prob_data_given_a = calculate_binomial(total_seq, base_a_count, ERROR_PROBABILITY).ln();
     let ln_prob_data_given_c = calculate_binomial(total_seq, base_c_count, ERROR_PROBABILITY).ln();
@@ -415,7 +437,7 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     quality_score = (-10.00) * error_score.log10();
     println!("quality score: {}", quality_score);
     println!("");
-    quality_score
+    (quality_score, count_mismatch)
 }
 
 fn calculate_binomial (n: usize, k: usize, prob: f64) -> f64 {
@@ -710,6 +732,22 @@ fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, norm
         }
     }
 }
+
+
+fn write_quality_score_graph (normal_filename: impl AsRef<Path>, normal_graph: &Graph<u8, i32, Directed, usize>) {
+    let mut count = 0;
+    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
+    let mut normal_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(normal_filename)
+        .unwrap();
+    writeln!(normal_file,
+        "{:?} \nFILE: {}\n{}",
+        chrono::offset::Local::now(), FILENAME, normal_dot)
+        .expect("result file cannot be written");
+}
+
 
 fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, mut saved_indices: IndexStruct,
                                             normal_graph: &Graph<u8, i32, Directed, usize>, homopolymer_graph: &Graph<u8, i32, Directed, usize>)
