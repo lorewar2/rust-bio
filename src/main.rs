@@ -35,31 +35,22 @@ const ERROR_PROBABILITY: f64 = 0.90;
 const QUALITY_SCORE: bool = true;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
-const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 5;
+const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
+const USEPACBIODATA: bool = false;
 
 fn main() {
+    let mut seqvec;
     //read the pacbio consensus
-    //let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
-    //let mut seqvec: Vec<String> = vec![pac_bio_consensus];
-    //seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
-    let seqvec = get_random_sequences_from_generator(1000, 10);
+    if USEPACBIODATA {
+        let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
+        seqvec = vec![pac_bio_consensus];
+        seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
+    }
+    else {
+        seqvec = get_random_sequences_from_generator(1000, 10);
+    }
     run(seqvec);
 }
-
-fn get_quality_from_file () {
-
-}
-fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
-    let file = File::open(filename).expect("no such file");
-    let buf = BufReader::new(file);
-    let lines: Vec<String> = buf.lines()
-        .map(|l| l.expect("Could not parse line"))
-        .collect();
-    let consensus: String = lines[1].clone().into();
-    consensus
-}
-
-
 
 fn run(seqvec: Vec<String>) {
     ////////////////////////
@@ -89,7 +80,6 @@ fn run(seqvec: Vec<String>) {
     ////////////////////////////
     //compressed poa alignment//
     ////////////////////////////
-        
         //make homopolymer compression vector
         let mut homopolymer_vec: Vec<HomopolymerSequence> = vec![];
         for seq in &seqvec{
@@ -130,29 +120,15 @@ fn run(seqvec: Vec<String>) {
             saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
             write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
                 &count_rep, seqnum as usize, &saved_indices);
-            //print the results
-            print!("Normal consensus:\t\t");
-            for i in &normal_consensus{
-                print!("{}", *i as char);
-            }
-            print!("\nNormal consensus score:\t\t{}", normal_score);
-            print!("\nHomopolymer consensus:\t\t");
-            for i in &homopolymer_consensus{
-                print!("{}", *i as char);
-            }
-            print!("\nHomopolymer score: \t\t{}", homopolymer_score);
-            print!("\nExpanded consensus:\t\t");
-            for i in &expanded_consensus{
-                print!("{}", *i as char);
-            }
-            print!("\nExpanded consensus score:\t{}", expanded_score);
-            println!("");
         }
     }
+    /////////////////////////////
+    //quality score calculation//
+    /////////////////////////////
     let mut invalid_indices: Vec<(usize, usize)> = vec![];
     // calculate and get the quality scores
     let (quality_scores, validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
-    
+    // get invalid indices is quality score is too low
     for index in 0..quality_scores.len() {
         //println!("{}[{}]\t\t -> {:.3} \tvalid = {}\t base_counts = ACGT{:?}", normal_consensus[index] as char, normal_topology[index], quality_scores[index], !validity[index], base_count_vec[index]);
         if //validity[index] == true &&
@@ -161,46 +137,21 @@ fn run(seqvec: Vec<String>) {
         }
     }
     println!("ERROR COUNT: {}", invalid_indices.len());
-    // write the quality scores to a file
-    write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec);
-    write_quality_score_graph("./results/normal_graph.fa", normal_graph);
-
-    // write the zoomed in graphs for invalid and low quality entries.
-    write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph);
-}
-
-fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>, base_count_vec: &Vec<Vec<usize>>) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    for index in 0..consensus.len() {
-        writeln!(file,
-            "{}[{}]\t\t -> {:.3} \tvalid = {}\t base_counts = ACGT{:?}",
-            consensus[index] as char, topology[index], quality_scores[index], !validity[index], base_count_vec[index])
-            .expect("result file cannot be written");
+    //get the pacbio quality
+    if USEPACBIODATA {
+        // write the zoomed in graphs for invalid and low quality entries.
+        let pacbio_quality_scores = get_quality_from_file(CONSENSUS_FILENAME);
+        write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec, &pacbio_quality_scores);
+        write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
+    }
+    else {
+        write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec, &" ".to_string());
+        write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph, &" ".to_string());
+        write_quality_score_graph("./results/normal_graph.fa", normal_graph);
     }
 }
 
-fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices: &Vec<(usize, usize)>, quality_scores: &Vec<f64>, base_count_vec: &Vec<Vec<usize>>, graph: &Graph<u8, i32, Directed, usize>) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    writeln!(file,
-        "{:?}\nFILE: {}\n>Quality score data & graphs:",
-        chrono::offset::Local::now(), FILENAME)
-        .expect("result file cannot be written");
-    for index in write_indices {
-        let graph_section = get_zoomed_graph_section (graph, &index.1, &0, 3);
-        writeln!(file,
-            "\nnode_index:{}\tnode_base:{}\tquality_score:{}\tbase_count:ACGT{:?}\t\n{}\n",
-            index.1, graph.raw_nodes()[index.1].weight, quality_scores[index.0], base_count_vec[index.0], graph_section)
-            .expect("result file cannot be written");
-    }
-}
+
 
 fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>) {
     let mut quality_scores: Vec<f64> = vec![];
@@ -223,11 +174,11 @@ fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &
             target_node_parent = Some(topology[i - 1]);
         } 
         let (parallel_nodes, parallel_num_incoming_seq) = get_parallel_nodes_with_topology_cut (seq_num, skip_nodes, topology[i], target_node_parent, graph);
-        print!("{} -> ", consensus[i] as char);
+        //print!("{} -> ", consensus[i] as char);
         for parallel_node in &parallel_nodes {
-            print!("[{}={}] ", *parallel_node, graph.raw_nodes()[*parallel_node].weight as char);
+            //print!("[{}={}] ", *parallel_node, graph.raw_nodes()[*parallel_node].weight as char);
         }
-        println!("");
+        //println!("");
         let (temp_quality_score, temp_count_mismatch, temp_base_counts) = base_quality_score_calculation(seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
         quality_scores.push(temp_quality_score);
         validity.push(temp_count_mismatch);
@@ -276,7 +227,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
                 skip_forward = [skip_forward, get_forward_nodes(2, vec![], *parallel_node, graph)].concat();
                 let temp_skip_forward_parent = vec![*parallel_node; skip_forward.len() - skip_forward_parent.len()];
                 skip_forward_parent = [skip_forward_parent, temp_skip_forward_parent].concat();
-                println!("added to skip {:?} {} {}", get_forward_nodes(2, vec![], *parallel_node, graph), skip_forward_parent.len(), skip_forward.len());
+                //println!("added to skip {:?} {} {}", get_forward_nodes(2, vec![], *parallel_node, graph), skip_forward_parent.len(), skip_forward.len());
             }
         }
         // remove forward skip nodes if parent is the parallel node ** obsolete **
@@ -284,7 +235,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
             let position_parallel = parallel_nodes.iter().position(|&r| skip_forward.contains(&r)).unwrap();
             let position_forward = skip_forward.iter().position(|&i| parallel_nodes.contains(&i)).unwrap();
             if parallel_node_parents[position_parallel] == skip_forward_parent[position_forward] {
-                println!("removing this due to forward: {}", parallel_nodes[position_parallel]);
+                //println!("removing this due to forward: {}", parallel_nodes[position_parallel]);
                 parallel_nodes.remove(position_parallel);
                 parallel_node_parents.remove(position_parallel);
                 seq_found_so_far -= parallel_num_incoming_seq[position_parallel];
@@ -297,7 +248,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
         // remove the skip nodes if present in parallel nodes ** obsolete **
         while skip_nodes.iter().any(|&i| parallel_nodes.contains(&i)) {
             let position = parallel_nodes.iter().position(|&r| skip_nodes.contains(&r)).unwrap();
-            println!("removing this: {}", parallel_nodes[position]);
+            //println!("removing this: {}", parallel_nodes[position]);
             seq_found_so_far -= parallel_num_incoming_seq[position];
             parallel_nodes.remove(position);
             parallel_node_parents.remove(position);
@@ -326,7 +277,7 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
             }
         }
     }
-    println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
+    //println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
     // get the intermidiate slice between node_position and its parent
     let mut target_node_parent_position = 0;
     let intermediate_slice = match focus_node_parent {
@@ -340,10 +291,10 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
     let back_slice = topologically_ordered_nodes[0..target_node_parent_position + 1].to_vec();
     let front_slice = topologically_ordered_nodes[target_node_position + 1..topologically_ordered_nodes.len()].to_vec();
     if(back_slice.len() > 5 && front_slice.len() > 5){
-        println!("back slice {:?}\nfront slice {:?}", back_slice[(back_slice.len()-5)..back_slice.len()].to_vec(), front_slice[0..5].to_vec());
+        //println!("back slice {:?}\nfront slice {:?}", back_slice[(back_slice.len()-5)..back_slice.len()].to_vec(), front_slice[0..5].to_vec());
     }
     
-    println!("intermediate slice {:?}", intermediate_slice);
+    //println!("intermediate slice {:?}", intermediate_slice);
     //iterate through edge nodes obtained
     for edge_node in &edge_nodes_list {
         // get the parents of the edge node
@@ -368,7 +319,7 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
                 }
                 parallel_nodes.push(*edge_node);
                 parallel_node_parents.push(*edge_node_parent);
-                print!("success node {} parent {}\n", *edge_node, *edge_node_parent);
+                //print!("success node {} parent {}\n", *edge_node, *edge_node_parent);
                 // get the edge weight and add to seq_found_so_far
                 let mut incoming_weight = 0;
                 let mut edges = graph.edges_connecting(NodeIndex::new(*edge_node_parent), NodeIndex::new(*edge_node));
@@ -494,10 +445,10 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     }
     match count_mismatch {
         true => {
-            println!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!!", base_a_count, base_c_count, base_g_count, base_t_count);
+            //println!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!!", base_a_count, base_c_count, base_g_count, base_t_count);
         },
         false => {
-            println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
+            //println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
         }
     }
     
@@ -507,7 +458,7 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     let ln_prob_data_given_c = calculate_binomial(total_seq, base_c_count, ERROR_PROBABILITY).ln();
     let ln_prob_data_given_g = calculate_binomial(total_seq, base_g_count, ERROR_PROBABILITY).ln();
     let ln_prob_data_given_t = calculate_binomial(total_seq, base_t_count, ERROR_PROBABILITY).ln();
-    println!("D|A:{} D|C:{} D|G:{} D|T:{}", ln_prob_data_given_a, ln_prob_data_given_c, ln_prob_data_given_g, ln_prob_data_given_t);
+    //println!("D|A:{} D|C:{} D|G:{} D|T:{}", ln_prob_data_given_a, ln_prob_data_given_c, ln_prob_data_given_g, ln_prob_data_given_t);
     //get the error score *changed to log space*
     let mut ln_sum_of_probablities = ln_prob_data_given_a + ln_prob_base_a;
     ln_sum_of_probablities = ln_sum_of_probablities.ln_add_exp(ln_prob_data_given_c + ln_prob_base_c);
@@ -516,26 +467,26 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
 
     error_score =  1.0 - match base {
         65 => {
-            println!("Focus base : A" );
+            //println!("Focus base : A" );
             exp(ln_prob_data_given_a + ln_prob_base_a - ln_sum_of_probablities)
         },
         67 => {
-            println!("Focus base : C" );
+            //println!("Focus base : C" );
             exp(ln_prob_data_given_c + ln_prob_base_c - ln_sum_of_probablities)
         },
         71 => {
-            println!("Focus base : G" );
+            //println!("Focus base : G" );
             exp(ln_prob_data_given_g + ln_prob_base_g - ln_sum_of_probablities)
         },
         84 => {
-            println!("Focus base : T" );
+            //println!("Focus base : T" );
             exp(ln_prob_data_given_t + ln_prob_base_t - ln_sum_of_probablities)
         },
         _ => {0.0},
     };
     quality_score = (-10.00) * error_score.log10();
-    println!("quality score: {}", quality_score);
-    println!("");
+    //println!("quality score: {}", quality_score);
+    //println!("");
     (quality_score, count_mismatch, base_counts)
 }
 
@@ -561,7 +512,7 @@ fn get_indices_of_parallel_nodes_of_target (mut skip_nodes: Vec<usize>, total_se
         // populate a list of back nodes and add them to the skip list
         // iterate until all the parallel nodes are found, while skipping the amount you go back 
         skip_nodes = [skip_nodes, get_back_nodes(3, vec![], target_node, graph)].concat();
-        println!("SKIP NODES {:?}", skip_nodes);
+        //println!("SKIP NODES {:?}", skip_nodes);
         let mut seq_found_so_far = num_seq_through_target_base;
         let mut prev_back_nodes: Vec<usize> = vec![target_node];
         let mut skip_nodes_internal: Vec<usize> = vec![];
@@ -701,222 +652,6 @@ fn find_neighbouring_indices (num_of_iterations: usize, focus_node: usize, graph
         }
     }
     indices 
-}
-
-fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct){
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    writeln!(file,
-        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
-        chrono::offset::Local::now(), FILENAME)
-        .expect("result file cannot be written");
-
-    let mut index = 0;
-    println!("{}", saved_indices);
-    while index + 50 < normal.len() {
-        let mut write_string: Vec<String> = vec![];
-        //count the mismatches, inserts and del in that range
-        let mut mismatch_count = 0;
-        let mut mismatch_struct_indices: Vec<usize> = vec![];
-        let mut insert_count = 0;
-        let mut insert_struct_indices: Vec<usize> = vec![];
-        let mut del_count = 0;
-        let mut del_struct_indices: Vec<usize> = vec![];
-        for mismatch_index in index..index + 50 {
-            if saved_indices.aligned_mismatch_indices.contains(&mismatch_index) {
-                mismatch_count += 1;
-                mismatch_struct_indices.push(saved_indices.aligned_mismatch_indices.iter().position(|&r| r == mismatch_index).unwrap());
-            }
-            if saved_indices.aligned_insert_indices.contains(&mismatch_index) {
-                insert_count += 1;
-                insert_struct_indices.push(saved_indices.aligned_insert_indices.iter().position(|&r| r == mismatch_index).unwrap());
-            }
-            if saved_indices.aligned_del_indices.contains(&mismatch_index) {
-                del_count += 1;
-                del_struct_indices.push(saved_indices.aligned_del_indices.iter().position(|&r| r == mismatch_index).unwrap());
-            }
-        }
-        write_string.push(format!("\n{}~{} out of {} (mismatches:{}, inserts:{}, deletions:{})\n", index, index + 50, normal.len(), mismatch_count, insert_count, del_count).to_string());
-        write_string.push("normal:".to_string());
-        for i in index..index + 50 {
-            match normal[i] {
-                55 => write_string.push("  _".to_string()),
-                65 => write_string.push("  A".to_string()),
-                67 => write_string.push("  C".to_string()),
-                71 => write_string.push("  G".to_string()),
-                84 => write_string.push("  T".to_string()),
-                _ => {},
-            }
-            if saved_indices.aligned_mismatch_indices.contains(&i) {
-                write_string.push("*".to_string());
-            }
-            else if saved_indices.aligned_insert_indices.contains(&i) {
-                write_string.push("%".to_string());
-            }
-            else if saved_indices.aligned_del_indices.contains(&i) {
-                write_string.push("?".to_string());
-            }
-            else {
-                write_string.push(" ".to_string());
-            }
-        }
-        write_string.push(format!("\nexpand:"));
-        for i in index..index + 50 {
-            match expanded[i] {
-                55 => write_string.push("  _".to_string()),
-                65 => write_string.push("  A".to_string()),
-                67 => write_string.push("  C".to_string()),
-                71 => write_string.push("  G".to_string()),
-                84 => write_string.push("  T".to_string()),
-                _ => {},
-            }
-            if saved_indices.aligned_mismatch_indices.contains(&i) {
-                write_string.push("*".to_string());
-            }
-            else if saved_indices.aligned_insert_indices.contains(&i) {
-                write_string.push("%".to_string());
-            }
-            else if saved_indices.aligned_del_indices.contains(&i) {
-                write_string.push("?".to_string());
-            }
-            else {
-                write_string.push(" ".to_string());
-            }
-        }
-        write_string.push("\n".to_string());
-        for j in 0..sequence_num {
-            write_string.push(format!("seq{:>3}:", j).to_string());
-            for i in index..index + 50 {
-                write_string.push(format!("{:>3},", count_representation[j][i]).to_string()); 
-            }
-            write_string.push("\n".to_string());
-        }
-        write_string.push("\n".to_string());
-        //push the graphs to the vector
-        for entry in &mismatch_struct_indices {
-            write_string.push("\nNormal Graph: mismatch\n".to_string());
-            write_string.push(saved_indices.normal_mismatch_graph_sections[*entry].clone());
-        }
-        for entry in &insert_struct_indices {
-            write_string.push("\nNormal Graph: insert\n".to_string());
-            write_string.push(saved_indices.normal_insert_graph_sections[*entry].clone());
-        }
-        for entry in &del_struct_indices {
-            write_string.push("\nNormal Graph: del\n".to_string());
-            write_string.push(saved_indices.normal_del_graph_sections[*entry].clone());
-        }
-        for entry in &mismatch_struct_indices {
-            write_string.push("\nHomopolymer Graph: mismatch\n".to_string());
-            write_string.push(saved_indices.homopolymer_mismatch_graph_sections[*entry].clone());
-        }
-        for entry in &insert_struct_indices {
-            write_string.push("\nHomopolymer Graph: del\n".to_string());
-            write_string.push(saved_indices.homopolymer_del_graph_sections[*entry].clone());
-        }
-        for entry in &del_struct_indices {
-            write_string.push("\nHomopolymer Graph: insert\n".to_string());
-            write_string.push(saved_indices.homopolymer_insert_graph_sections[*entry].clone());
-        }
-        
-        index = index + 50;
-        for entry in write_string{
-            //print!("{}", entry);
-            write!(file,
-                "{}",
-                entry)
-                .expect("result file cannot be written");
-        }
-    }
-}
-
-
-fn write_quality_score_graph (normal_filename: impl AsRef<Path>, normal_graph: &Graph<u8, i32, Directed, usize>) {
-    let mut count = 0;
-    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
-    let mut normal_file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(normal_filename)
-        .unwrap();
-    writeln!(normal_file,
-        "{:?} \nFILE: {}\n{}",
-        chrono::offset::Local::now(), FILENAME, normal_dot)
-        .expect("result file cannot be written");
-}
-
-
-fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, mut saved_indices: IndexStruct,
-                                            normal_graph: &Graph<u8, i32, Directed, usize>, homopolymer_graph: &Graph<u8, i32, Directed, usize>)
-                                            -> IndexStruct {
-    let mut count = 0;
-    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
-    let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph.map(|_, n| (*n) as char, |_, e| *e)));
-
-    for index in &saved_indices.normal_mismatch_indices {
-        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 0);
-        saved_indices.normal_mismatch_graph_sections.push(graph_section);
-        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 0);
-        count += 1;
-    }
-    count = 0;
-    for index in &saved_indices.normal_insert_indices {
-        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 1);
-        saved_indices.normal_insert_graph_sections.push(graph_section);
-        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 1);
-        count += 1;
-    }
-    count = 0;
-    for index in &saved_indices.normal_del_indices {
-        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 2);
-        saved_indices.normal_del_graph_sections.push(graph_section);
-        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 2);
-        count += 1;
-    }
-    count = 0;
-    for index in &saved_indices.homopolymer_mismatch_indices {
-        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 0);
-        saved_indices.homopolymer_mismatch_graph_sections.push(graph_section);
-        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 0);
-        count += 1;
-    }
-    count = 0;
-    for index in &saved_indices.homopolymer_insert_indices {
-        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 1);
-        saved_indices.homopolymer_insert_graph_sections.push(graph_section);
-        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 1);
-        count += 1;
-    }
-    count = 0;
-    for index in &saved_indices.homopolymer_del_indices {
-        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 2);
-        saved_indices.homopolymer_del_graph_sections.push(graph_section);
-        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 2);
-        count += 1;
-    } 
-    let mut normal_file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(normal_filename)
-        .unwrap();
-    writeln!(normal_file,
-        "{:?} \nFILE: {}\n{}",
-        chrono::offset::Local::now(), FILENAME, normal_dot)
-        .expect("result file cannot be written");
-    let mut homopolymer_file = OpenOptions::new()
-    .write(true)
-    .append(true)
-    .open(homopolymer_filename)
-    .unwrap();
-    writeln!(homopolymer_file,
-        "{:?} \nFILE: {}\n{}",
-        chrono::offset::Local::now(), FILENAME, homopolymer_dot)
-        .expect("result file cannot be written");
-    saved_indices
-    //println!("{}", normal_dot);
-    //println!("{}", homopolymer_dot);
 }
 
 fn modify_dot_graph_with_highlight (mut dot: String, focus_node: &usize, error_count: &usize, description_type: usize) -> String {
@@ -1061,75 +796,6 @@ fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i
     }
     randomvec
 
-}
-
-fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
-    let mut tempvec: Vec<String> = vec![];
-    let mut seqvec: Vec<String> = vec![];
-    let file = File::open(filename).expect("no such file");
-    let buf = BufReader::new(file);
-    let lines: Vec<String> = buf.lines()
-        .map(|l| l.expect("Could not parse line"))
-        .collect();
-    //get the indices of >
-    let mut indices: Vec<usize> = vec![];
-    let mut index = 0;
-    for line in &lines{
-        if line.as_bytes()[0] as char == '>'{
-            //println!("{:?}", line);
-            indices.push(index);
-        }
-        index += 1;
-    }
-    //join the lines between >s and remove > lines
-    let mut prev_index: usize = 0;
-    for index in indices {
-        if prev_index != 0 && index != 0{
-            tempvec.push(lines[(prev_index + 1)..index].join(""));
-        }
-        prev_index = index;
-    }
-    //reverse complement every other line
-    let mut index = 0;
-    for seq in &tempvec{
-        if index % 2 != 0 {
-            let mut tempseq: Vec<char> = vec![];
-            let iterator = seq.chars().rev().into_iter();
-            for char in iterator{
-                tempseq.push(match char {
-                    'A' => 'T',
-                    'C' => 'G',
-                    'G' => 'C',
-                    'T' => 'A',
-                    _ => ' ',
-                });
-            }
-            seqvec.push(tempseq.iter().cloned().collect::<String>());
-        }
-        else {
-            seqvec.push((*seq.clone()).to_string());
-        }
-        index += 1;
-    }
-    //get rid of the last incomplete reading
-    seqvec.pop();
-    //sort the vector by size
-    seqvec.sort_by_key(|seq| seq.len());
-    //drop the sequences which are > 1.8x median size
-    let mut drop_index = seqvec.len();
-    let median_size: f32 = seqvec[(seqvec.len() / 2) - 1].len() as f32;
-    for index in (seqvec.len() / 2)..(seqvec.len() - 1) {
-        if seqvec[index].len() as f32 > (median_size * 1.8) {
-            drop_index = index;
-            break;
-        }
-    }
-    for _ in drop_index..seqvec.len() {
-        seqvec.pop();
-    }
-    // rearrange the seq vector median first and rest according median size difference
-    seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());
-    seqvec
 }
 
 fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
@@ -1462,6 +1128,7 @@ fn get_alignment_with_count_for_debug(vector1: &Vec<u8>, vector2: &Vec<u8>, alig
     (vec1_representation, vec2_representation, count_representation)
     //write_alignment_data_fasta_file("./results/consensus.fa", &vec1_representation, &vec2_representation, &count_representation, sequence_num);
 }
+
 //structs here
 pub struct IndexStruct {
     pub normal_mismatch_indices: Vec<usize>,
@@ -1521,7 +1188,312 @@ impl HomopolymerSequence {
     }
 }
 
+//file stuff
+
+fn get_quality_from_file (filename: impl AsRef<Path>) -> String {
+    let file = File::open(filename).expect("no such file");
+    let buf = BufReader::new(file);
+    let lines: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
+    let quality: String = lines[3].clone().into();
+    quality
+}
+
+fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
+    let file = File::open(filename).expect("no such file");
+    let buf = BufReader::new(file);
+    let lines: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
+    let consensus: String = lines[1].clone().into();
+    consensus
+}
+
+fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
+    let mut tempvec: Vec<String> = vec![];
+    let mut seqvec: Vec<String> = vec![];
+    let file = File::open(filename).expect("no such file");
+    let buf = BufReader::new(file);
+    let lines: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
+    //get the indices of >
+    let mut indices: Vec<usize> = vec![];
+    let mut index = 0;
+    for line in &lines{
+        if line.as_bytes()[0] as char == '>'{
+            //println!("{:?}", line);
+            indices.push(index);
+        }
+        index += 1;
+    }
+    //join the lines between >s and remove > lines
+    let mut prev_index: usize = 0;
+    for index in indices {
+        if prev_index != 0 && index != 0{
+            tempvec.push(lines[(prev_index + 1)..index].join(""));
+        }
+        prev_index = index;
+    }
+    //reverse complement every other line
+    let mut index = 0;
+    for seq in &tempvec{
+        if index % 2 != 0 {
+            let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+            seqvec.push(tempseq.iter().cloned().collect::<String>());
+        }
+        else {
+            seqvec.push((*seq.clone()).to_string());
+        }
+        index += 1;
+    }
+    //get rid of the last incomplete reading
+    seqvec.pop();
+    //sort the vector by size
+    seqvec.sort_by_key(|seq| seq.len());
+    //drop the sequences which are > 1.8x median size
+    let mut drop_index = seqvec.len();
+    let median_size: f32 = seqvec[(seqvec.len() / 2) - 1].len() as f32;
+    for index in (seqvec.len() / 2)..(seqvec.len() - 1) {
+        if seqvec[index].len() as f32 > (median_size * 1.8) {
+            drop_index = index;
+            break;
+        }
+    }
+    for _ in drop_index..seqvec.len() {
+        seqvec.pop();
+    }
+    // rearrange the seq vector median first and rest according median size difference
+    seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());
+    seqvec
+}
+
 //write stuff here 
+
+fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct){
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
+        chrono::offset::Local::now(), FILENAME)
+        .expect("result file cannot be written");
+
+    let mut index = 0;
+    println!("{}", saved_indices);
+    while index + 50 < normal.len() {
+        let mut write_string: Vec<String> = vec![];
+        //count the mismatches, inserts and del in that range
+        let mut mismatch_count = 0;
+        let mut mismatch_struct_indices: Vec<usize> = vec![];
+        let mut insert_count = 0;
+        let mut insert_struct_indices: Vec<usize> = vec![];
+        let mut del_count = 0;
+        let mut del_struct_indices: Vec<usize> = vec![];
+        for mismatch_index in index..index + 50 {
+            if saved_indices.aligned_mismatch_indices.contains(&mismatch_index) {
+                mismatch_count += 1;
+                mismatch_struct_indices.push(saved_indices.aligned_mismatch_indices.iter().position(|&r| r == mismatch_index).unwrap());
+            }
+            if saved_indices.aligned_insert_indices.contains(&mismatch_index) {
+                insert_count += 1;
+                insert_struct_indices.push(saved_indices.aligned_insert_indices.iter().position(|&r| r == mismatch_index).unwrap());
+            }
+            if saved_indices.aligned_del_indices.contains(&mismatch_index) {
+                del_count += 1;
+                del_struct_indices.push(saved_indices.aligned_del_indices.iter().position(|&r| r == mismatch_index).unwrap());
+            }
+        }
+        write_string.push(format!("\n{}~{} out of {} (mismatches:{}, inserts:{}, deletions:{})\n", index, index + 50, normal.len(), mismatch_count, insert_count, del_count).to_string());
+        write_string.push("normal:".to_string());
+        for i in index..index + 50 {
+            match normal[i] {
+                55 => write_string.push("  _".to_string()),
+                65 => write_string.push("  A".to_string()),
+                67 => write_string.push("  C".to_string()),
+                71 => write_string.push("  G".to_string()),
+                84 => write_string.push("  T".to_string()),
+                _ => {},
+            }
+            if saved_indices.aligned_mismatch_indices.contains(&i) {
+                write_string.push("*".to_string());
+            }
+            else if saved_indices.aligned_insert_indices.contains(&i) {
+                write_string.push("%".to_string());
+            }
+            else if saved_indices.aligned_del_indices.contains(&i) {
+                write_string.push("?".to_string());
+            }
+            else {
+                write_string.push(" ".to_string());
+            }
+        }
+        write_string.push(format!("\nexpand:"));
+        for i in index..index + 50 {
+            match expanded[i] {
+                55 => write_string.push("  _".to_string()),
+                65 => write_string.push("  A".to_string()),
+                67 => write_string.push("  C".to_string()),
+                71 => write_string.push("  G".to_string()),
+                84 => write_string.push("  T".to_string()),
+                _ => {},
+            }
+            if saved_indices.aligned_mismatch_indices.contains(&i) {
+                write_string.push("*".to_string());
+            }
+            else if saved_indices.aligned_insert_indices.contains(&i) {
+                write_string.push("%".to_string());
+            }
+            else if saved_indices.aligned_del_indices.contains(&i) {
+                write_string.push("?".to_string());
+            }
+            else {
+                write_string.push(" ".to_string());
+            }
+        }
+        write_string.push("\n".to_string());
+        for j in 0..sequence_num {
+            write_string.push(format!("seq{:>3}:", j).to_string());
+            for i in index..index + 50 {
+                write_string.push(format!("{:>3},", count_representation[j][i]).to_string()); 
+            }
+            write_string.push("\n".to_string());
+        }
+        write_string.push("\n".to_string());
+        //push the graphs to the vector
+        for entry in &mismatch_struct_indices {
+            write_string.push("\nNormal Graph: mismatch\n".to_string());
+            write_string.push(saved_indices.normal_mismatch_graph_sections[*entry].clone());
+        }
+        for entry in &insert_struct_indices {
+            write_string.push("\nNormal Graph: insert\n".to_string());
+            write_string.push(saved_indices.normal_insert_graph_sections[*entry].clone());
+        }
+        for entry in &del_struct_indices {
+            write_string.push("\nNormal Graph: del\n".to_string());
+            write_string.push(saved_indices.normal_del_graph_sections[*entry].clone());
+        }
+        for entry in &mismatch_struct_indices {
+            write_string.push("\nHomopolymer Graph: mismatch\n".to_string());
+            write_string.push(saved_indices.homopolymer_mismatch_graph_sections[*entry].clone());
+        }
+        for entry in &insert_struct_indices {
+            write_string.push("\nHomopolymer Graph: del\n".to_string());
+            write_string.push(saved_indices.homopolymer_del_graph_sections[*entry].clone());
+        }
+        for entry in &del_struct_indices {
+            write_string.push("\nHomopolymer Graph: insert\n".to_string());
+            write_string.push(saved_indices.homopolymer_insert_graph_sections[*entry].clone());
+        }
+        
+        index = index + 50;
+        for entry in write_string{
+            //print!("{}", entry);
+            write!(file,
+                "{}",
+                entry)
+                .expect("result file cannot be written");
+        }
+    }
+}
+
+fn write_quality_score_graph (normal_filename: impl AsRef<Path>, normal_graph: &Graph<u8, i32, Directed, usize>) {
+    let mut count = 0;
+    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
+    let mut normal_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(normal_filename)
+        .unwrap();
+    writeln!(normal_file,
+        "{:?} \nFILE: {}\n{}",
+        chrono::offset::Local::now(), FILENAME, normal_dot)
+        .expect("result file cannot be written");
+}
+
+fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRef<Path>, homopolymer_filename: impl AsRef<Path>, mut saved_indices: IndexStruct,
+    normal_graph: &Graph<u8, i32, Directed, usize>, homopolymer_graph: &Graph<u8, i32, Directed, usize>)
+    -> IndexStruct {
+    let mut count = 0;
+    let mut normal_dot = format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)));
+    let mut homopolymer_dot = format!("{:?}", Dot::new(&homopolymer_graph.map(|_, n| (*n) as char, |_, e| *e)));
+
+    for index in &saved_indices.normal_mismatch_indices {
+        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 0);
+        saved_indices.normal_mismatch_graph_sections.push(graph_section);
+        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 0);
+        count += 1;
+    }
+    count = 0;
+    for index in &saved_indices.normal_insert_indices {
+        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 1);
+        saved_indices.normal_insert_graph_sections.push(graph_section);
+        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 1);
+        count += 1;
+    }
+    count = 0;
+    for index in &saved_indices.normal_del_indices {
+        let graph_section = get_zoomed_graph_section (&normal_graph, &index, &count, 2);
+        saved_indices.normal_del_graph_sections.push(graph_section);
+        normal_dot = modify_dot_graph_with_highlight(normal_dot, &index, &count, 2);
+        count += 1;
+    }
+    count = 0;
+    for index in &saved_indices.homopolymer_mismatch_indices {
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 0);
+        saved_indices.homopolymer_mismatch_graph_sections.push(graph_section);
+        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 0);
+        count += 1;
+    }
+    count = 0;
+    for index in &saved_indices.homopolymer_insert_indices {
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 1);
+        saved_indices.homopolymer_insert_graph_sections.push(graph_section);
+        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 1);
+        count += 1;
+    }
+    count = 0;
+    for index in &saved_indices.homopolymer_del_indices {
+        let graph_section = get_zoomed_graph_section (&homopolymer_graph, &index, &count, 2);
+        saved_indices.homopolymer_del_graph_sections.push(graph_section);
+        homopolymer_dot = modify_dot_graph_with_highlight(homopolymer_dot, &index, &count, 2);
+        count += 1;
+    } 
+    let mut normal_file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(normal_filename)
+        .unwrap();
+    writeln!(normal_file,
+        "{:?} \nFILE: {}\n{}",
+        chrono::offset::Local::now(), FILENAME, normal_dot)
+        .expect("result file cannot be written");
+    let mut homopolymer_file = OpenOptions::new()
+    .write(true)
+    .append(true)
+    .open(homopolymer_filename)
+    .unwrap();
+    writeln!(homopolymer_file,
+        "{:?} \nFILE: {}\n{}",
+        chrono::offset::Local::now(), FILENAME, homopolymer_dot)
+        .expect("result file cannot be written");
+    saved_indices
+    //println!("{}", normal_dot);
+    //println!("{}", homopolymer_dot);
+}
 fn write_scores_result_file(filename: impl AsRef<Path>, normal_score: i32, homopolymer_score: i32, expanded_score: i32) {
     let mut file = OpenOptions::new()
         .write(true)
@@ -1559,6 +1531,41 @@ fn write_filtered_data_fasta_file(filename: impl AsRef<Path>, seqvec: &Vec<Strin
             index, seq)
             .expect("result file cannot be written");
         index += 1;
+    }
+}
+
+fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>, base_count_vec: &Vec<Vec<usize>>, pacbioquality: &String) {
+    let pacbiochar: Vec<char> = pacbioquality.chars().collect();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    for index in 0..consensus.len() {
+        writeln!(file,
+            "{}[{}]\t\t -> {:.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
+            consensus[index] as char, topology[index], quality_scores[index], (pacbiochar[index % pacbiochar.len()] as u8 - 33), !validity[index], base_count_vec[index])
+            .expect("result file cannot be written");
+    }
+}
+
+fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices: &Vec<(usize, usize)>, quality_scores: &Vec<f64>, base_count_vec: &Vec<Vec<usize>>, graph: &Graph<u8, i32, Directed, usize>, pacbioquality: &String) {
+    let pacbiochar: Vec<char> = pacbioquality.chars().collect();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Quality score data & graphs:",
+        chrono::offset::Local::now(), FILENAME)
+        .expect("result file cannot be written");
+    for index in write_indices {
+        let graph_section = get_zoomed_graph_section (graph, &index.1, &0, 3);
+        writeln!(file,
+            "\nnode_index:{}\t\tnode_base:{}\t\tquality_score:{:.3}[{}]\tbase_count:ACGT{:?}\t\n{}\n",
+            index.1, graph.raw_nodes()[index.1].weight as char, quality_scores[index.0], (pacbiochar[index.0 % pacbiochar.len()] as u8 - 33), base_count_vec[index.0], graph_section)
+            .expect("result file cannot be written");
     }
 }
 
