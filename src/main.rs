@@ -130,7 +130,6 @@ fn run(seqvec: Vec<String>) {
     let (quality_scores, validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
     // get invalid indices is quality score is too low
     for index in 0..quality_scores.len() {
-        //println!("{}[{}]\t\t -> {:.3} \tvalid = {}\t base_counts = ACGT{:?}", normal_consensus[index] as char, normal_topology[index], quality_scores[index], !validity[index], base_count_vec[index]);
         if //validity[index] == true &&
             quality_scores[index] <= 30.00 {
             invalid_indices.push((index, normal_topology[index]));
@@ -153,32 +152,23 @@ fn run(seqvec: Vec<String>) {
 
 
 
-fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>) {
+fn get_consensus_quality_scores(mut seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>) {
     let mut quality_scores: Vec<f64> = vec![];
     let mut validity: Vec<bool> = vec![];
     let mut base_count_vec: Vec<Vec<usize>> = vec![];
     //run all the consensus through get indices
     for i in 0..consensus.len() {
-        // prev method eg using skip back skip front 
         // skip the indices which are in the passed consensus
         let mut skip_nodes: Vec<usize> = topology[0 .. i + 1].to_vec();
-        //skip_nodes.reverse();
-        //let (temp_indices, temp_indices_seq,temp_seq_num) = get_indices_of_parallel_nodes_of_target(skip_nodes, seq_num as usize, topology[i], graph);
-        //println!("parallel node indices {:?}", temp_indices);
-        //calculate quality score
-        //quality_scores.push(base_quality_score_calculation(temp_seq_num, temp_indices, temp_indices_seq, consensus[i], graph));
-        //println!("");
         // new method using topology cut
         let mut target_node_parent = None;
         if i != 0 {
             target_node_parent = Some(topology[i - 1]);
         } 
         let (parallel_nodes, parallel_num_incoming_seq) = get_parallel_nodes_with_topology_cut (seq_num, skip_nodes, topology[i], target_node_parent, graph);
-        //print!("{} -> ", consensus[i] as char);
-        for parallel_node in &parallel_nodes {
-            //print!("[{}={}] ", *parallel_node, graph.raw_nodes()[*parallel_node].weight as char);
+        if USEPACBIODATA {
+            seq_num -= 1;
         }
-        //println!("");
         let (temp_quality_score, temp_count_mismatch, temp_base_counts) = base_quality_score_calculation(seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
         quality_scores.push(temp_quality_score);
         validity.push(temp_count_mismatch);
@@ -210,7 +200,12 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
 
     if num_seq_through_target_base == total_seq {
         parallel_nodes.push(target_node);
-        parallel_num_incoming_seq.push(num_seq_through_target_base);
+        if USEPACBIODATA {
+            parallel_num_incoming_seq.push(num_seq_through_target_base - 1);
+        }
+        else {
+            parallel_num_incoming_seq.push(num_seq_through_target_base);
+        }
         return (parallel_nodes, parallel_num_incoming_seq);
     }
     // go back skip_count and go forward skip_count + 3 and check if parent and child are before and after target_node_position,
@@ -256,7 +251,12 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
         }
         bubble_size += 1;
     }
-    parallel_num_incoming_seq.push(num_seq_through_target_base);
+    if USEPACBIODATA {
+        parallel_num_incoming_seq.push(num_seq_through_target_base - 1);
+    }
+    else {
+        parallel_num_incoming_seq.push(num_seq_through_target_base);
+    }
     parallel_nodes.push(target_node);
     (parallel_nodes, parallel_num_incoming_seq)
 }
