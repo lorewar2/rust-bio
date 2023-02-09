@@ -42,10 +42,13 @@ fn main() {
     //let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
     //let mut seqvec: Vec<String> = vec![pac_bio_consensus];
     //seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
-    let seqvec = get_random_sequences_from_generator(100, 10);
+    let seqvec = get_random_sequences_from_generator(1000, 10);
     run(seqvec);
 }
 
+fn get_quality_from_file () {
+
+}
 fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
     let file = File::open(filename).expect("no such file");
     let buf = BufReader::new(file);
@@ -56,19 +59,7 @@ fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
     consensus
 }
 
-fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_score: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>) {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    for index in 0..consensus.len() {
-        writeln!(file,
-            "{}[{}]\t -> {:.3} \tvalid = {}",
-            consensus[index] as char, topology[index], quality_score[index], !validity[index])
-            .expect("result file cannot be written");
-    }
-}
+
 
 fn run(seqvec: Vec<String>) {
     ////////////////////////
@@ -95,9 +86,9 @@ fn run(seqvec: Vec<String>) {
     let normal_graph = aligner.graph();
 
     if HOMOPOLYMER {
-        ////////////////////////////
-        //compressed poa alignment//
-        ////////////////////////////
+    ////////////////////////////
+    //compressed poa alignment//
+    ////////////////////////////
         
         //make homopolymer compression vector
         let mut homopolymer_vec: Vec<HomopolymerSequence> = vec![];
@@ -161,18 +152,35 @@ fn run(seqvec: Vec<String>) {
     let mut invalid_indices: Vec<(usize, usize)> = vec![];
     // calculate and get the quality scores
     let (quality_scores, validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
+    
     for index in 0..quality_scores.len() {
         //println!("{}[{}]\t\t -> {:.3} \tvalid = {}\t base_counts = ACGT{:?}", normal_consensus[index] as char, normal_topology[index], quality_scores[index], !validity[index], base_count_vec[index]);
-        if (validity[index] == true) {
+        if //validity[index] == true &&
+            quality_scores[index] <= 30.00 {
             invalid_indices.push((index, normal_topology[index]));
         }
     }
+    println!("ERROR COUNT: {}", invalid_indices.len());
     // write the quality scores to a file
-    write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity);
+    write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec);
     write_quality_score_graph("./results/normal_graph.fa", normal_graph);
 
     // write the zoomed in graphs for invalid and low quality entries.
     write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph);
+}
+
+fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>, base_count_vec: &Vec<Vec<usize>>) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    for index in 0..consensus.len() {
+        writeln!(file,
+            "{}[{}]\t\t -> {:.3} \tvalid = {}\t base_counts = ACGT{:?}",
+            consensus[index] as char, topology[index], quality_scores[index], !validity[index], base_count_vec[index])
+            .expect("result file cannot be written");
+    }
 }
 
 fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices: &Vec<(usize, usize)>, quality_scores: &Vec<f64>, base_count_vec: &Vec<Vec<usize>>, graph: &Graph<u8, i32, Directed, usize>) {
@@ -258,7 +266,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
     // iterate skip_count until all sequences are found, break on 5
     let mut seq_found_so_far = num_seq_through_target_base;
     let mut bubble_size = 1;
-    while seq_found_so_far < total_seq  && bubble_size < 5{
+    while seq_found_so_far < total_seq  && bubble_size < 5 {
         let mut skip_forward: Vec<usize> = vec![];
         let mut skip_forward_parent: Vec<usize> = vec![];
         (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far) = check_neighbours_and_find_crossing_nodes (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, target_node, target_node_parent, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
@@ -271,14 +279,15 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
                 println!("added to skip {:?} {} {}", get_forward_nodes(2, vec![], *parallel_node, graph), skip_forward_parent.len(), skip_forward.len());
             }
         }
-        // remove forward skip nodes if parent is the parallel node
+        // remove forward skip nodes if parent is the parallel node ** obsolete **
         while skip_forward.iter().any(|&i| parallel_nodes.contains(&i)) {
             let position_parallel = parallel_nodes.iter().position(|&r| skip_forward.contains(&r)).unwrap();
             let position_forward = skip_forward.iter().position(|&i| parallel_nodes.contains(&i)).unwrap();
-            if(parallel_node_parents[position_parallel] == skip_forward_parent[position_forward]){
+            if parallel_node_parents[position_parallel] == skip_forward_parent[position_forward] {
                 println!("removing this due to forward: {}", parallel_nodes[position_parallel]);
                 parallel_nodes.remove(position_parallel);
                 parallel_node_parents.remove(position_parallel);
+                seq_found_so_far -= parallel_num_incoming_seq[position_parallel];
                 parallel_num_incoming_seq.remove(position_parallel);
             }
             else {
@@ -289,6 +298,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
         while skip_nodes.iter().any(|&i| parallel_nodes.contains(&i)) {
             let position = parallel_nodes.iter().position(|&r| skip_nodes.contains(&r)).unwrap();
             println!("removing this: {}", parallel_nodes[position]);
+            seq_found_so_far -= parallel_num_incoming_seq[position];
             parallel_nodes.remove(position);
             parallel_node_parents.remove(position);
             parallel_num_incoming_seq.remove(position);
@@ -318,12 +328,10 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
     }
     println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
     // get the intermidiate slice between node_position and its parent
-    let mut parent_slice = vec![];
     let mut target_node_parent_position = 0;
     let intermediate_slice = match focus_node_parent {
         Some(x) => {
             target_node_parent_position = topologically_ordered_nodes.iter().position(|&r| r == x).unwrap();
-            parent_slice.push(x);
             topologically_ordered_nodes[target_node_parent_position..target_node_position].to_vec()
         },
         None => {vec![]},
@@ -342,8 +350,10 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
         let edge_node_parents = get_back_nodes (1, vec![], *edge_node, graph);
         'parent_loop: for edge_node_parent in &edge_node_parents {
             // if the parent is in back section and node is in front section add to parallel nodes or if both parent and target is in intermediate add to parallel loop
-            if (back_slice.contains(edge_node_parent) && front_slice.contains(edge_node) && (*edge_node_parent != focus_node) && !parallel_nodes.contains(edge_node_parent)) ||
-                (parent_slice.contains(edge_node_parent) && intermediate_slice.contains(edge_node) && !parallel_nodes.contains(edge_node_parent)) {
+            if (back_slice.contains(edge_node_parent) && front_slice.contains(edge_node) && (*edge_node_parent != focus_node)) ||
+                (intermediate_slice.contains(edge_node_parent) && intermediate_slice.contains(edge_node)) ||
+                (back_slice.contains(edge_node_parent) && intermediate_slice.contains(edge_node)) {
+                // edge node parent check
                 if parallel_nodes.contains(edge_node) && parallel_node_parents.contains(edge_node_parent) {
                     // go through the parallel nodes and if there is a match check if the same parent and continue if so
                     for index in 0..parallel_nodes.len() {
@@ -351,6 +361,10 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
                             continue 'parent_loop;
                         }  
                     }
+                }
+                // target node front of parallel node check
+                if get_forward_nodes(4, vec![],  *edge_node, graph).contains(&focus_node) {
+                    continue;
                 }
                 parallel_nodes.push(*edge_node);
                 parallel_node_parents.push(*edge_node_parent);
@@ -475,10 +489,19 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     }
     // save the base counts for debug
     base_counts = [base_a_count, base_c_count, base_g_count, base_t_count].to_vec();
-    println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
     if (base_a_count + base_c_count + base_g_count + base_t_count) != total_seq {
         count_mismatch = true;
     }
+    match count_mismatch {
+        true => {
+            println!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!!", base_a_count, base_c_count, base_g_count, base_t_count);
+        },
+        false => {
+            println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
+        }
+    }
+    
+    
     //calculate all the probablilities
     let ln_prob_data_given_a = calculate_binomial(total_seq, base_a_count, ERROR_PROBABILITY).ln();
     let ln_prob_data_given_c = calculate_binomial(total_seq, base_c_count, ERROR_PROBABILITY).ln();
