@@ -27,8 +27,8 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const FILENAME: &str = "./data/PacBioReads/46793296.fasta";
-const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/46793296.fastq";
+const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
+const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/141232172.fastq";
 const SEED: u64 = 1;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
@@ -36,7 +36,7 @@ const QUALITY_SCORE: bool = true;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = false;
+const USEPACBIODATA: bool = true;
 
 fn main() {
     let mut seqvec;
@@ -1540,7 +1540,7 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
         .unwrap();
     for index in 0..consensus.len() {
         writeln!(file,
-            "{}[{:>6}]\t\t -> {:.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
+            "{}[{:>6}]\t\t -> {:>8.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
             consensus[index] as char, topology[index], quality_scores[index], (pacbiochar[index % pacbiochar.len()] as u8 - 33), !validity[index], base_count_vec[index])
             .expect("result file cannot be written");
     }
