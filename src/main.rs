@@ -166,9 +166,6 @@ fn get_consensus_quality_scores(mut seq_num: usize, consensus: &Vec<u8>, topolog
             target_node_parent = Some(topology[i - 1]);
         } 
         let (parallel_nodes, parallel_num_incoming_seq) = get_parallel_nodes_with_topology_cut (seq_num, skip_nodes, topology[i], target_node_parent, graph);
-        if USEPACBIODATA {
-            seq_num -= 1;
-        }
         let (temp_quality_score, temp_count_mismatch, temp_base_counts) = base_quality_score_calculation(seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
         quality_scores.push(temp_quality_score);
         validity.push(temp_count_mismatch);
@@ -440,7 +437,7 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     }
     // save the base counts for debug
     base_counts = [base_a_count, base_c_count, base_g_count, base_t_count].to_vec();
-    if (base_a_count + base_c_count + base_g_count + base_t_count) != total_seq {
+    if (base_a_count + base_c_count + base_g_count + base_t_count) != (total_seq - 1) {
         count_mismatch = true;
     }
     match count_mismatch {
@@ -1543,7 +1540,7 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
         .unwrap();
     for index in 0..consensus.len() {
         writeln!(file,
-            "{}[{}]\t\t -> {:.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
+            "{}[{:>6}]\t\t -> {:.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
             consensus[index] as char, topology[index], quality_scores[index], (pacbiochar[index % pacbiochar.len()] as u8 - 33), !validity[index], base_count_vec[index])
             .expect("result file cannot be written");
     }
