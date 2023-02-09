@@ -29,14 +29,14 @@ const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
 const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/141232172.fastq";
-const SEED: u64 = 1;
+const SEED: u64 = 2;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const QUALITY_SCORE: bool = true;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
+const USEPACBIODATA: bool = false;
 
 fn main() {
     let mut seqvec;
@@ -47,7 +47,7 @@ fn main() {
         seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
     }
     else {
-        seqvec = get_random_sequences_from_generator(1000, 10);
+        seqvec = get_random_sequences_from_generator(100, 10);
     }
     run(seqvec);
 }
@@ -130,8 +130,8 @@ fn run(seqvec: Vec<String>) {
     let (quality_scores, validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
     // get invalid indices is quality score is too low
     for index in 0..quality_scores.len() {
-        if //validity[index] == true &&
-            quality_scores[index] <= 30.00 {
+        if validity[index] == true
+            {
             invalid_indices.push((index, normal_topology[index]));
         }
     }
@@ -165,6 +165,7 @@ fn get_consensus_quality_scores(mut seq_num: usize, consensus: &Vec<u8>, topolog
         if i != 0 {
             target_node_parent = Some(topology[i - 1]);
         } 
+        println!("{}->{}", consensus[i] as char, topology[i]);
         let (parallel_nodes, parallel_num_incoming_seq) = get_parallel_nodes_with_topology_cut (seq_num, skip_nodes, topology[i], target_node_parent, graph);
         let (temp_quality_score, temp_count_mismatch, temp_base_counts) = base_quality_score_calculation(seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
         quality_scores.push(temp_quality_score);
@@ -219,7 +220,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
                 skip_forward = [skip_forward, get_forward_nodes(2, vec![], *parallel_node, graph)].concat();
                 let temp_skip_forward_parent = vec![*parallel_node; skip_forward.len() - skip_forward_parent.len()];
                 skip_forward_parent = [skip_forward_parent, temp_skip_forward_parent].concat();
-                //println!("added to skip {:?} {} {}", get_forward_nodes(2, vec![], *parallel_node, graph), skip_forward_parent.len(), skip_forward.len());
+                println!("added to skip {:?} {} {}", get_forward_nodes(2, vec![], *parallel_node, graph), skip_forward_parent.len(), skip_forward.len());
             }
         }
         // remove forward skip nodes if parent is the parallel node ** obsolete **
@@ -227,7 +228,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
             let position_parallel = parallel_nodes.iter().position(|&r| skip_forward.contains(&r)).unwrap();
             let position_forward = skip_forward.iter().position(|&i| parallel_nodes.contains(&i)).unwrap();
             if parallel_node_parents[position_parallel] == skip_forward_parent[position_forward] {
-                //println!("removing this due to forward: {}", parallel_nodes[position_parallel]);
+                println!("removing this due to forward: {}", parallel_nodes[position_parallel]);
                 parallel_nodes.remove(position_parallel);
                 parallel_node_parents.remove(position_parallel);
                 seq_found_so_far -= parallel_num_incoming_seq[position_parallel];
@@ -240,7 +241,7 @@ fn get_parallel_nodes_with_topology_cut (total_seq: usize, mut skip_nodes: Vec<u
         // remove the skip nodes if present in parallel nodes ** obsolete **
         while skip_nodes.iter().any(|&i| parallel_nodes.contains(&i)) {
             let position = parallel_nodes.iter().position(|&r| skip_nodes.contains(&r)).unwrap();
-            //println!("removing this: {}", parallel_nodes[position]);
+            println!("removing this: {}", parallel_nodes[position]);
             seq_found_so_far -= parallel_num_incoming_seq[position];
             parallel_nodes.remove(position);
             parallel_node_parents.remove(position);
@@ -274,7 +275,7 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
             }
         }
     }
-    //println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
+    println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
     // get the intermidiate slice between node_position and its parent
     let mut target_node_parent_position = 0;
     let intermediate_slice = match focus_node_parent {
@@ -288,10 +289,10 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
     let back_slice = topologically_ordered_nodes[0..target_node_parent_position + 1].to_vec();
     let front_slice = topologically_ordered_nodes[target_node_position + 1..topologically_ordered_nodes.len()].to_vec();
     if(back_slice.len() > 5 && front_slice.len() > 5){
-        //println!("back slice {:?}\nfront slice {:?}", back_slice[(back_slice.len()-5)..back_slice.len()].to_vec(), front_slice[0..5].to_vec());
+        println!("back slice {:?}\nfront slice {:?}", back_slice[(back_slice.len()-5)..back_slice.len()].to_vec(), front_slice[0..5].to_vec());
     }
     
-    //println!("intermediate slice {:?}", intermediate_slice);
+    println!("intermediate slice {:?}", intermediate_slice);
     //iterate through edge nodes obtained
     for edge_node in &edge_nodes_list {
         // get the parents of the edge node
@@ -316,7 +317,7 @@ fn check_neighbours_and_find_crossing_nodes (mut parallel_nodes: Vec<usize>, mut
                 }
                 parallel_nodes.push(*edge_node);
                 parallel_node_parents.push(*edge_node_parent);
-                //print!("success node {} parent {}\n", *edge_node, *edge_node_parent);
+                print!("success node {} parent {}\n", *edge_node, *edge_node_parent);
                 // get the edge weight and add to seq_found_so_far
                 let mut incoming_weight = 0;
                 let mut edges = graph.edges_connecting(NodeIndex::new(*edge_node_parent), NodeIndex::new(*edge_node));
@@ -437,15 +438,15 @@ fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: 
     }
     // save the base counts for debug
     base_counts = [base_a_count, base_c_count, base_g_count, base_t_count].to_vec();
-    if (base_a_count + base_c_count + base_g_count + base_t_count) != (total_seq - 1) {
+    if (base_a_count + base_c_count + base_g_count + base_t_count) != (total_seq) {
         count_mismatch = true;
     }
     match count_mismatch {
         true => {
-            //println!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!!", base_a_count, base_c_count, base_g_count, base_t_count);
+            println!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!! \n", base_a_count, base_c_count, base_g_count, base_t_count);
         },
         false => {
-            //println!("base counts A:{} C:{} G:{} T:{}", base_a_count, base_c_count, base_g_count, base_t_count);
+            println!("base counts A:{} C:{} G:{} T:{} \n", base_a_count, base_c_count, base_g_count, base_t_count);
         }
     }
     
