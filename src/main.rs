@@ -30,8 +30,9 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
+const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
+const USEPACBIODATA: bool = false;
 
 fn main() {
     let mut seqvec;
@@ -125,8 +126,7 @@ fn run(seqvec: Vec<String>) {
     let (quality_scores, validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
     // get invalid indices is quality score is too low
     for index in 0..quality_scores.len() {
-        if validity[index] == true
-            {
+        if validity[index] == true {
             invalid_indices.push((index, normal_topology[index]));
         }
     }
@@ -258,7 +258,7 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
     // iterate skip_count until all sequences are found, break on 5
     let mut seq_found_so_far = num_seq_through_target_base;
     let mut bubble_size = 1;
-    while seq_found_so_far < total_seq  && bubble_size < 5 {
+    while seq_found_so_far < total_seq  && bubble_size < NUM_OF_ITER_FOR_PARALLEL {
         //incoming back to front
         (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far) = move_in_direction_and_find_crossing_nodes (&skip_nodes, total_seq, direction.unwrap(), parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, target_node, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
         bubble_size += 1;
@@ -287,9 +287,20 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
     println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
     // get the two slices of topologically_ordered_list back front
     let mut slice: Vec<Vec<usize>> = [topologically_ordered_nodes[0..target_node_position].to_vec(), topologically_ordered_nodes[target_node_position + 1..topologically_ordered_nodes.len()].to_vec()].to_vec();
-    if slice[0].len() > 5 && slice[1].len() > 5 {
-        println!("back slice {:?}\nfront slice {:?}", slice[0][(slice[0].len()-5)..slice[0].len()].to_vec(), slice[1][0..5].to_vec());
+    // for debugging
+    if slice[0].len() > 10 {
+        println!("back slice {:?}", slice[0][(slice[0].len() - 10)..slice[0].len()].to_vec());
     }
+    else {
+        println!("back slice {:?}", slice[0][0..slice[0].len()].to_vec());
+    }
+    if slice[1].len() > 10 {
+        println!("front slice {:?}", slice[1][0..10].to_vec());
+    }
+    else {
+        println!("front slice {:?}", slice[1][0..slice[1].len()].to_vec());
+    }
+
     if direction == Outgoing {
         slice.reverse();
     }
@@ -1388,6 +1399,10 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
         .append(true)
         .open(filename)
         .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n>Quality score data & graphs:",
+        chrono::offset::Local::now(), FILENAME)
+        .expect("result file cannot be written");
     for index in 0..consensus.len() {
         writeln!(file,
             "{}[{:>6}]\t\t -> {:>8.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
