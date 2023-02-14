@@ -133,18 +133,49 @@ fn run(seqvec: Vec<String>) {
     println!("ERROR COUNT: {}", invalid_indices.len());
     //get the pacbio quality
     if USEPACBIODATA {
+        // align the pacbio consensus and quality scores to the calculated consensus
+        let pacbio_quality_scores = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
         // write the zoomed in graphs for invalid and low quality entries.
-        let pacbio_quality_scores = get_quality_from_file(CONSENSUS_FILENAME);
         write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec, &pacbio_quality_scores);
         write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
     }
     else {
-        write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec, &" ".to_string());
-        write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph, &" ".to_string());
+        write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &validity, &base_count_vec, &vec![33, 33]);
+        write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_indices, &quality_scores, &base_count_vec, normal_graph, &vec![33, 33]);
         write_quality_score_graph("./results/normal_graph.fa", normal_graph);
     }
 }
 
+fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &Vec<u8>, pacbio_quality_scores: String) -> Vec<usize> {
+    let pacbio_consensus_vec: Vec<u8> = pacbio_consensus.bytes().collect();
+    let pacbio_quality_scores_vec: Vec<char> =  pacbio_quality_scores.chars().collect();
+    let mut aligned_pacbio_scores_vec: Vec<usize> = vec![];
+    let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(pacbio_consensus_vec.len(), calculated_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&pacbio_consensus_vec, &calculated_consensus);
+        let mut pacbio_index = alignment.xstart;
+        for op in &alignment.operations {
+            match op {
+                bio::alignment::AlignmentOperation::Match => {
+                    aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[pacbio_index] as usize);
+                    pacbio_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Subst => {
+                    aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[pacbio_index] as usize * 10);
+                    pacbio_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Del => {
+                },
+                bio::alignment::AlignmentOperation::Ins => {
+                    aligned_pacbio_scores_vec.push(33);
+                    pacbio_index += 1;
+                    
+                },
+                _ => {},
+            }
+        }
+        aligned_pacbio_scores_vec
+}
 fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>) {
     let mut quality_scores: Vec<f64> = vec![];
     let mut validity: Vec<bool> = vec![];
@@ -217,6 +248,9 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
 
     if num_seq_through_target_base == total_seq {
         parallel_nodes.push(target_node);
+        if USEPACBIODATA {
+            parallel_num_incoming_seq.push(num_seq_through_target_base - 1);
+        }
         parallel_num_incoming_seq.push(num_seq_through_target_base);
         return (parallel_nodes, parallel_num_incoming_seq);
     }
@@ -228,6 +262,9 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
         //incoming back to front
         (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far) = move_in_direction_and_find_crossing_nodes (&skip_nodes, total_seq, direction.unwrap(), parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, target_node, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
         bubble_size += 1;
+    }
+    if USEPACBIODATA {
+        parallel_num_incoming_seq.push(num_seq_through_target_base - 1);
     }
     parallel_num_incoming_seq.push(num_seq_through_target_base);
     parallel_nodes.push(target_node);
@@ -355,7 +392,10 @@ fn get_xiterations_direction_nodes (direction: Direction ,iteration: usize, mut 
     direction_node_list
 }
 
-fn base_quality_score_calculation (total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> (f64, bool, Vec<usize>) {
+fn base_quality_score_calculation (mut total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> (f64, bool, Vec<usize>) {
+    if USEPACBIODATA {
+        total_seq -= 1;
+    }
     //variable initialization
     let mut count_mismatch: bool = false;
     let error_score: f64;
@@ -1342,8 +1382,7 @@ fn write_scores_result_file(filename: impl AsRef<Path>, normal_score: i32, homop
             .expect("result file cannot be written");
 }
 
-fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>, base_count_vec: &Vec<Vec<usize>>, pacbioquality: &String) {
-    let pacbiochar: Vec<char> = pacbioquality.chars().collect();
+fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, validity: &Vec<bool>, base_count_vec: &Vec<Vec<usize>>, pacbioquality: &Vec<usize>) {
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
@@ -1352,13 +1391,12 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
     for index in 0..consensus.len() {
         writeln!(file,
             "{}[{:>6}]\t\t -> {:>8.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
-            consensus[index] as char, topology[index], quality_scores[index], (pacbiochar[index % pacbiochar.len()] as u8 - 33), !validity[index], base_count_vec[index])
+            consensus[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), !validity[index], base_count_vec[index])
             .expect("result file cannot be written");
     }
 }
 
-fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices: &Vec<(usize, usize)>, quality_scores: &Vec<f64>, base_count_vec: &Vec<Vec<usize>>, graph: &Graph<u8, i32, Directed, usize>, pacbioquality: &String) {
-    let pacbiochar: Vec<char> = pacbioquality.chars().collect();
+fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices: &Vec<(usize, usize)>, quality_scores: &Vec<f64>, base_count_vec: &Vec<Vec<usize>>, graph: &Graph<u8, i32, Directed, usize>, pacbioquality: &Vec<usize>) {
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
@@ -1372,7 +1410,7 @@ fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices:
         let graph_section = get_zoomed_graph_section (graph, &index.1, &0, 3);
         writeln!(file,
             "\nnode_index:{}\t\tnode_base:{}\t\tquality_score:{:.3}[{}]\tbase_count:ACGT{:?}\t\n{}\n",
-            index.1, graph.raw_nodes()[index.1].weight as char, quality_scores[index.0], (pacbiochar[index.0 % pacbiochar.len()] as u8 - 33), base_count_vec[index.0], graph_section)
+            index.1, graph.raw_nodes()[index.1].weight as char, quality_scores[index.0], (pacbioquality[index.0 % pacbioquality.len()] - 33), base_count_vec[index.0], graph_section)
             .expect("result file cannot be written");
     }
 }
