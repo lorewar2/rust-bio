@@ -1403,12 +1403,25 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
         "{:?}\nFILE: {}\n>Quality score data & graphs:",
         chrono::offset::Local::now(), FILENAME)
         .expect("result file cannot be written");
-    for index in 0..consensus.len() {
-        writeln!(file,
-            "{}[{:>6}]\t\t -> {:>8.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
-            consensus[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), !validity[index], base_count_vec[index])
-            .expect("result file cannot be written");
+    if USEPACBIODATA {
+        for index in 0..consensus.len() {
+            if pacbioquality[index % pacbioquality.len()] == 0 {
+                writeln!(file,
+                    "{}[{:>6}]\t\t -> {:>8.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
+                    consensus[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), !validity[index], base_count_vec[index])
+                    .expect("result file cannot be written");
+            }
+        }
     }
+    else {
+        for index in 0..consensus.len() {
+            writeln!(file,
+                "{}[{:>6}]\t\t -> {:>8.3}[{}] \tvalid = {}\t base_counts = ACGT{:?}",
+                consensus[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), !validity[index], base_count_vec[index])
+                .expect("result file cannot be written");
+        }
+    }
+    
 }
 
 fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, write_indices: &Vec<(usize, usize)>, quality_scores: &Vec<f64>, base_count_vec: &Vec<Vec<usize>>, graph: &Graph<u8, i32, Directed, usize>, pacbioquality: &Vec<usize>) {
