@@ -1,5 +1,6 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
+use regex::bytes;
 //bandedpoa/ poa
 use std::{
     fs::File,
@@ -31,6 +32,7 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
+const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
 const USEPACBIODATA: bool = true;
@@ -44,7 +46,7 @@ fn main() {
         seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
     }
     else {
-        seqvec = get_random_sequences_from_generator(2000, 10);
+        seqvec = get_random_sequences_from_generator(100, 10);
     }
     run(seqvec);
 }
@@ -99,16 +101,18 @@ fn run(seqvec: Vec<String>) {
         //get graph
         let homopolymer_graph: &Graph<u8, i32, Directed, usize> = aligner.graph();
         //use homopolymer compressions sequences to make expanded consensus
-        let (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymer_expanded) =  get_expanded_consensus(homopolymer_vec, &homopolymer_consensus);
+        let (homopolymer_consensus_freq, homopolymer_score) = get_aligned_homopolymer_sequences_to_homopolymer_consensus(&homopolymer_vec, &homopolymer_consensus);
+        let (expanded_consensus, homopolymer_expanded) =  calculate_and_get_expansion (&homopolymer_vec, &homopolymer_consensus, &homopolymer_consensus_freq);
         //get the scores of expanded consensus compared to sequences
         let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
+        println!("expanded score:{}", expanded_score);
 
         if HOMOPOLYMER_DEBUG {
             let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
             let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), expanded_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
             let alignment = aligner.global(&normal_consensus, &expanded_consensus);
             let mut saved_indices: IndexStruct;
-            saved_indices = get_indices_for_debug(&alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
+            saved_indices = get_indices_for_homopolymer_debug(&alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
             let (normal_rep, expanded_rep, count_rep) 
                 = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
             //write results to file
@@ -120,61 +124,214 @@ fn run(seqvec: Vec<String>) {
         }
     }
     /////////////////////////////
-    //quality score calculation//
+    //alignment check         ///
     /////////////////////////////
-    let mut invalid_info: Vec<(usize, usize, bool, bool, bool)> = vec![]; //index, node_id, parallel invalid, match invalid, quality invalid
-    // calculate and get the quality scores
-    let (quality_scores, parallel_validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
-
+    let mut mismatch_indices: Vec<usize> = vec![];
+    let mut pacbio_quality_scores: Vec<usize> = vec![];
+    let mut seq_vec = vec![];
+    let pacbio_alignment: bio::alignment::Alignment;
+    for seq in &seqvec{
+        seq_vec.push(seq.as_bytes().to_vec());
+    }
     if USEPACBIODATA {
         // align the pacbio consensus and quality scores to the calculated consensus
-        let (pacbio_quality_scores, mismatch_indices) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
-        // get invalid indices is quality score is too low
-        for index in 0..quality_scores.len() {
-            if parallel_validity[index] == true {
-                invalid_info.push((index, normal_topology[index], true, false, false));
-            }
-            if mismatch_indices.contains(&index) {
-                match invalid_info.iter().position(|&r| r.0 == index) {
-                    Some(position) => {invalid_info[position].3 = true;},
-                    None => {invalid_info.push((index, normal_topology[index], false, true, false));},
-                }
-            }
-            if quality_scores[index] < 0.0 {
-                match invalid_info.iter().position(|&r| r.0 == index) {
-                    Some(position) => {invalid_info[position].4 = true;},
-                    None => {invalid_info.push((index, normal_topology[index], false, false, true));},
-                }
-            }
-        }
-        println!("ERROR COUNT: {}", invalid_info.len());
-        // write the zoomed in graphs for invalid and low quality entries.
-        write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores);
-        write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
+        let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
+        (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
+        let mut saved_indices: IndexStruct;
+        let (pacbio_consensus_freq, pacbio_consensus_score) = get_aligned_sequences_to_consensus (&seq_vec, &pacbio_consensus);
+        let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &pacbio_alignment, &pacbio_consensus_freq, seqnum as usize);
+        saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len()).collect());
+        write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
     }
-    else {
-        for index in 0..quality_scores.len() {
-            if parallel_validity[index] == true {
-                invalid_info.push((index, normal_topology[index], true, false, false));
+    
+
+
+    /////////////////////////////
+    //quality score calculation//
+    /////////////////////////////
+    if QUALITY_SCORE {
+        let mut invalid_info: Vec<(usize, usize, bool, bool, bool)> = vec![]; //index, node_id, parallel invalid, match invalid, quality invalid
+        // calculate and get the quality scores
+        let (quality_scores, parallel_validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
+        if USEPACBIODATA {
+            // get invalid indices is quality score is too low
+            for index in 0..quality_scores.len() {
+                if parallel_validity[index] == true {
+                    invalid_info.push((index, normal_topology[index], true, false, false));
+                }
+                if mismatch_indices.contains(&index) {
+                    match invalid_info.iter().position(|&r| r.0 == index) {
+                        Some(position) => {invalid_info[position].3 = true;},
+                        None => {invalid_info.push((index, normal_topology[index], false, true, false));},
+                    }
+                }
+                if quality_scores[index] < 0.0 {
+                    match invalid_info.iter().position(|&r| r.0 == index) {
+                        Some(position) => {invalid_info[position].4 = true;},
+                        None => {invalid_info.push((index, normal_topology[index], false, false, true));},
+                    }
+                }
             }
+            println!("ERROR COUNT: {}", invalid_info.len());
+            // write the zoomed in graphs for invalid and low quality entries.
+            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores);
+            write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
         }
-        println!("ERROR COUNT: {}", invalid_info.len());
-        write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34]);
-        write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
-        write_quality_score_graph("./results/normal_graph.fa", normal_graph);
+        else {
+            for index in 0..quality_scores.len() {
+                if parallel_validity[index] == true {
+                    invalid_info.push((index, normal_topology[index], true, false, false));
+                }
+            }
+            println!("ERROR COUNT: {}", invalid_info.len());
+            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34]);
+            write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
+            write_quality_score_graph("./results/normal_graph.fa", normal_graph);
+        }
+    }
+    
+}
+
+fn get_indices_for_debug(alignment: &bio::alignment::Alignment, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
+                            -> IndexStruct {
+
+    let mut normal_mismatches: Vec<usize> = vec![];
+    let mut normal_insertions: Vec<usize> = vec![];
+    let mut normal_deletions: Vec<usize> = vec![];
+
+    let mut homopolymer_mismatches: Vec<usize> = vec![];
+    let mut homopolymer_insertions: Vec<usize> = vec![];
+    let mut homopolymer_deletions: Vec<usize> = vec![];
+
+    let mut alignment_mismatches: Vec<usize> = vec![];
+    let mut alignment_insertions: Vec<usize> = vec![];
+    let mut alignment_deletions: Vec<usize> = vec![];
+    let mut alignment_index: usize = 0;
+
+    let mut normal_index: usize = alignment.xstart;
+    let mut homopolymer_index: usize = alignment.ystart;
+    for op in &alignment.operations {
+        match op {
+            bio::alignment::AlignmentOperation::Match => {
+                normal_index += 1;
+                homopolymer_index += 1;
+            },
+            bio::alignment::AlignmentOperation::Subst => {
+                normal_mismatches.push(normal_index);
+                homopolymer_mismatches.push(homopolymer_index);
+                alignment_mismatches.push(alignment_index);
+                normal_index += 1;
+                homopolymer_index += 1;
+            },
+            bio::alignment::AlignmentOperation::Del => {
+                homopolymer_insertions.push(homopolymer_index);
+                normal_deletions.push(normal_index);
+                alignment_deletions.push(alignment_index);
+                homopolymer_index += 1;
+            },
+            bio::alignment::AlignmentOperation::Ins => {
+                normal_insertions.push(normal_index);
+                homopolymer_deletions.push(homopolymer_index);
+                alignment_insertions.push(alignment_index);
+                normal_index += 1;
+            },
+            _ => {},
+        }
+        alignment_index += 1;
+    }
+    //calculate normal and homopolymer positions in respective graphs using the topology indices
+    for index in 0..normal_mismatches.len() {
+        normal_mismatches[index] = normal_topo[normal_mismatches[index] as usize] as usize;
+    }
+    for index in 0..normal_insertions.len() {
+        normal_insertions[index] = normal_topo[normal_insertions[index] as usize] as usize;
+    }
+    for index in 0..normal_deletions.len() {
+        normal_deletions[index] = normal_topo[normal_deletions[index] as usize] as usize;
+    }
+    for index in 0..homopolymer_mismatches.len() {
+        homopolymer_mismatches[index] = homopolymer_topo[homopolymer_mismatches[index] as usize] as usize;
+    }
+    for index in 0..homopolymer_insertions.len() {
+        homopolymer_insertions[index] = homopolymer_topo[homopolymer_insertions[index] as usize] as usize;
+    }
+    for index in 0..homopolymer_deletions.len() {
+        homopolymer_deletions[index] = homopolymer_topo[homopolymer_deletions[index] as usize] as usize;
+    }
+    IndexStruct {
+        normal_mismatch_indices: normal_mismatches,
+        normal_mismatch_graph_sections: vec![],
+        normal_insert_indices: normal_insertions,
+        normal_insert_graph_sections: vec![],
+        normal_del_indices: normal_deletions,
+        normal_del_graph_sections: vec![],
+        homopolymer_mismatch_indices: homopolymer_mismatches,
+        homopolymer_mismatch_graph_sections: vec![],
+        homopolymer_insert_indices: homopolymer_insertions,
+        homopolymer_insert_graph_sections: vec![],
+        homopolymer_del_indices: homopolymer_deletions,
+        homopolymer_del_graph_sections: vec![],
+        aligned_mismatch_indices: alignment_mismatches,
+        aligned_insert_indices: alignment_insertions,
+        aligned_del_indices: alignment_deletions,
     }
 }
 
-fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &Vec<u8>, pacbio_quality_scores: String) -> (Vec<usize>, Vec<usize>) {
+fn get_aligned_sequences_to_consensus (sequences: &Vec<Vec<u8>>, consensus: &Vec<u8>) -> (Vec<Vec<u32>>, i32)  {
+    //use homopolymer compressions sequences to make expanded consensus //make function
+    let mut total_score = 0;
+    let mut consensus_freq: Vec<Vec<u32>> = vec![vec![0; sequences.len()]; consensus.len()];
+    let mut i: usize = 0;
+    for sequence in sequences {
+        let mut sequence_base_freq: Vec<u32> = vec![0; sequence.len()];
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(consensus.len(), sequence.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&consensus, &sequence);
+        let mut consensus_index = alignment.xstart;
+        let mut sequence_index = alignment.ystart;
+        for op in &alignment.operations {
+            match op {
+                bio::alignment::AlignmentOperation::Match => {
+                    //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);                    
+                    consensus_freq[consensus_index][i] += 1;
+                    sequence_base_freq[sequence_index] += 1;
+                    sequence_index += 1;
+                    consensus_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Subst => {
+                    //println!("{} MisMatch {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);
+                    sequence_index += 1;
+                    consensus_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Del => {
+                    //println!("Del {}", homopolymer_seq.bases[homopolymer_index]);
+                    sequence_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Ins => {
+                    //println!("Ins {}", homopolymer_consensus[consensus_index]);
+                    consensus_index += 1;
+                    
+                },
+                _ => {},
+            }
+        }
+        total_score += alignment.score;
+        i += 1;
+
+    }
+    (consensus_freq, total_score)
+}
+
+fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &Vec<u8>, pacbio_quality_scores: String) -> (Vec<usize>, Vec<usize>, bio::alignment::Alignment) {
     let mut consensus_match_invalid_indices: Vec<usize> = vec![];
     let pacbio_consensus_vec: Vec<u8> = pacbio_consensus.bytes().collect();
     let pacbio_quality_scores_vec: Vec<char> =  pacbio_quality_scores.chars().collect();
     let mut aligned_pacbio_scores_vec: Vec<usize> = vec![];
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(pacbio_consensus_vec.len(), calculated_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&pacbio_consensus_vec, &calculated_consensus);
-        let mut pacbio_index = alignment.xstart;
-        let mut calc_index = alignment.ystart;
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(calculated_consensus.len(), pacbio_consensus_vec.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&calculated_consensus, &pacbio_consensus_vec);
+        let mut pacbio_index = alignment.ystart;
+        let mut calc_index = alignment.xstart;
         for op in &alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
@@ -200,7 +357,7 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
                 _ => {},
             }
         }
-        (aligned_pacbio_scores_vec, consensus_match_invalid_indices)
+        (aligned_pacbio_scores_vec, consensus_match_invalid_indices, alignment)
 }
 fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>) {
     let mut quality_scores: Vec<f64> = vec![];
@@ -725,57 +882,12 @@ fn get_consensus_score(seqvec : &Vec<String>, consensus: &Vec<u8>) -> i32{
     consensus_score
 }
 
-
-fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<u8>, Vec<Vec<u32>>, i32, Vec<u8>)  {
-    //use homopolymer compressions sequences to make expanded consensus //make function
-    let mut homopolymer_score = 0;
-    let mut homopolymer_consensus_freq: Vec<Vec<u32>> = vec![vec![0; homopolymer_vec.len()]; homopolymer_consensus.len()];
-    let mut i = 0;
-    for homopolymer_seq in &homopolymer_vec{
-        let mut sequence_base_freq: Vec<u32> = vec![0; homopolymer_seq.bases.len()];
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(homopolymer_consensus.len(), homopolymer_seq.bases.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&homopolymer_consensus, &homopolymer_seq.bases);
-        let mut consensus_index = alignment.xstart;
-        let mut homopolymer_index = alignment.ystart;
-        //println!("start index consensus {}", consensus_index);
-        //println!("start index sequence {}", homopolymer_index);
-        for op in &alignment.operations {
-            match op {
-                bio::alignment::AlignmentOperation::Match => {
-                    //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);                    
-                    homopolymer_consensus_freq[consensus_index][i] += homopolymer_seq.frequencies[homopolymer_index];
-                    sequence_base_freq[homopolymer_index] += homopolymer_seq.frequencies[homopolymer_index];
-                    homopolymer_index += 1;
-                    consensus_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Subst => {
-                    //println!("{} MisMatch {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);
-                    homopolymer_index += 1;
-                    consensus_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Del => {
-                    //println!("Del {}", homopolymer_seq.bases[homopolymer_index]);
-                    homopolymer_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Ins => {
-                    //println!("Ins {}", homopolymer_consensus[consensus_index]);
-                    consensus_index += 1;
-                    
-                },
-                _ => {},
-            }
-        }
-        homopolymer_score += alignment.score;
-        i += 1;
-
-    }
-
+fn calculate_and_get_expansion (homopolymer_vec: &Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>, homopolymer_consensus_freq: &Vec<Vec<u32>>) -> (Vec<u8>, Vec<u8>) {
     //make the expanded consensus using the frequencies
     let mut expanded_consensus: Vec<u8> = vec![];
     let mut repetitions: Vec<f32> = vec![0.0; homopolymer_consensus.len()];
-
     let mut homopolymervec_expanded: Vec<u8> = vec![];
+
     //++ average ++
     if CONSENSUS_METHOD == 0 {
         for i in 0..homopolymer_vec.len() {
@@ -833,11 +945,55 @@ fn get_expanded_consensus(homopolymer_vec: Vec<HomopolymerSequence>, homopolymer
             homopolymervec_expanded.push((repetitions[j]).round() as u8);
         }
     }
-    
-    (expanded_consensus, homopolymer_consensus_freq, homopolymer_score, homopolymervec_expanded)
+    (expanded_consensus, homopolymervec_expanded)
 }
 
-fn get_indices_for_debug(alignment: &bio::alignment::Alignment, homopolymer_expand: &Vec<u8>, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
+fn get_aligned_homopolymer_sequences_to_homopolymer_consensus (homopolymer_vec: &Vec<HomopolymerSequence>, homopolymer_consensus: &Vec<u8>) -> (Vec<Vec<u32>>, i32)  {
+    //use homopolymer compressions sequences to make expanded consensus //make function
+    let mut homopolymer_score = 0;
+    let mut homopolymer_consensus_freq: Vec<Vec<u32>> = vec![vec![0; homopolymer_vec.len()]; homopolymer_consensus.len()];
+    let mut i = 0;
+    for homopolymer_seq in homopolymer_vec{
+        let mut sequence_base_freq: Vec<u32> = vec![0; homopolymer_seq.bases.len()];
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(homopolymer_consensus.len(), homopolymer_seq.bases.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&homopolymer_consensus, &homopolymer_seq.bases);
+        let mut consensus_index = alignment.xstart;
+        let mut homopolymer_index = alignment.ystart;
+        for op in &alignment.operations {
+            match op {
+                bio::alignment::AlignmentOperation::Match => {
+                    //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);                    
+                    homopolymer_consensus_freq[consensus_index][i] += homopolymer_seq.frequencies[homopolymer_index];
+                    sequence_base_freq[homopolymer_index] += homopolymer_seq.frequencies[homopolymer_index];
+                    homopolymer_index += 1;
+                    consensus_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Subst => {
+                    //println!("{} MisMatch {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);
+                    homopolymer_index += 1;
+                    consensus_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Del => {
+                    //println!("Del {}", homopolymer_seq.bases[homopolymer_index]);
+                    homopolymer_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Ins => {
+                    //println!("Ins {}", homopolymer_consensus[consensus_index]);
+                    consensus_index += 1;
+                    
+                },
+                _ => {},
+            }
+        }
+        homopolymer_score += alignment.score;
+        i += 1;
+
+    }
+    (homopolymer_consensus_freq, homopolymer_score)
+}
+
+fn get_indices_for_homopolymer_debug(alignment: &bio::alignment::Alignment, homopolymer_expand: &Vec<u8>, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
                             -> IndexStruct {
 
     let mut normal_mismatches: Vec<usize> = vec![];
