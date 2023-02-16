@@ -49,7 +49,7 @@ fn main() {
     else {
         seqvec = get_random_sequences_from_generator(100, 10);
     }
-    //run(seqvec);
+    run(seqvec);
 }
 
 fn run(seqvec: Vec<String>) {
@@ -139,7 +139,7 @@ fn run(seqvec: Vec<String>) {
         let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
         (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
         let mut saved_indices: IndexStruct;
-        let (pacbio_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &pacbio_consensus);
+        let (pacbio_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &normal_consensus);
         let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &pacbio_alignment, &pacbio_consensus_freq, seqnum as usize);
         saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len() + 1).collect());
         //try to remove this
@@ -331,10 +331,10 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
     let pacbio_quality_scores_vec: Vec<char> =  pacbio_quality_scores.chars().collect();
     let mut aligned_pacbio_scores_vec: Vec<usize> = vec![];
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(calculated_consensus.len(), pacbio_consensus_vec.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&calculated_consensus, &pacbio_consensus_vec);
-        let mut pacbio_index = alignment.ystart;
-        let mut calc_index = alignment.xstart;
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(pacbio_consensus_vec.len(), calculated_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&pacbio_consensus_vec, &calculated_consensus);
+        let mut calc_index = alignment.ystart;
+        let mut pacbio_index = alignment.xstart;
         for op in &alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
@@ -350,12 +350,12 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
                 },
                 bio::alignment::AlignmentOperation::Del => {
                     consensus_match_invalid_indices.push(pacbio_index);
-                    calc_index += 1;
+                    pacbio_index += 1;
+                    
                 },
                 bio::alignment::AlignmentOperation::Ins => {
                     aligned_pacbio_scores_vec.push(33);
-                    pacbio_index += 1;
-                    
+                    calc_index += 1;
                 },
                 _ => {},
             }
