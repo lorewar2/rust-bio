@@ -249,7 +249,7 @@ fn get_indices_for_debug(alignment: &bio::alignment::Alignment, normal_topo: &Ve
         normal_insertions[index] = normal_topo[normal_insertions[index] as usize] as usize;
     }
     for index in 0..normal_deletions.len() {
-        normal_deletions[index] = normal_topo[normal_deletions[index] as usize] as usize;
+        //normal_deletions[index] = normal_topo[normal_deletions[index] as usize] as usize;
     }
     for index in 0..homopolymer_mismatches.len() {
         homopolymer_mismatches[index] = homopolymer_topo[homopolymer_mismatches[index] as usize] as usize;
