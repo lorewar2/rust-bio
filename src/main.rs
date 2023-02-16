@@ -241,6 +241,9 @@ fn get_alignment_with_count_for_debug_2(vector1: &Vec<u8>, vector2: &Vec<u8>, al
             },
             bio::alignment::AlignmentOperation::Ins => {
                 vec1_representation.push(vector1[vec1_index]);
+                for i in 0..sequence_num {
+                    count_representation[i].push(count[vec1_index][i]);
+                }
                 vec1_index += 1;
                 vec2_representation.push(55);
             },
