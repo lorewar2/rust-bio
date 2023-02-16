@@ -139,9 +139,18 @@ fn run(seqvec: Vec<String>) {
         let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
         (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
         let mut saved_indices: IndexStruct;
-        let (pacbio_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &normal_consensus);
-        let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &pacbio_alignment, &pacbio_consensus_freq, seqnum as usize);
+        let (calc_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &normal_consensus);
+
+
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), pacbio_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&normal_consensus, &pacbio_consensus);
+
+        let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &alignment, &calc_consensus_freq, seqnum as usize);
         saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len() + 1).collect());
+
+
+
         //try to remove this
         let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
         let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
