@@ -140,7 +140,7 @@ fn run(seqvec: Vec<String>) {
         let mut saved_indices: IndexStruct;
         let (pacbio_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &pacbio_consensus);
         let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &pacbio_alignment, &pacbio_consensus_freq, seqnum as usize);
-        saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len()).collect());
+        saved_indices = get_indices_for_debug(&pacbio_alignment, &(0..pacbio_consensus.len()).collect(), &normal_topology);
         //try to remove this
         let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
         let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
