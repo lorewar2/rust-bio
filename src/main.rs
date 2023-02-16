@@ -35,8 +35,8 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = false;
-const ALIGNMENT_CHECK: bool = false;
+const USEPACBIODATA: bool = true;
+const ALIGNMENT_CHECK: bool = true;
 
 fn main() {
     let mut seqvec;
