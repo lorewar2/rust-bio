@@ -144,7 +144,7 @@ fn run(seqvec: Vec<String>) {
         //try to remove this
         let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
         let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
-        saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
+        //saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
     }
     
@@ -1445,6 +1445,7 @@ fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, norm
             write_string.push("\n".to_string());
         }
         write_string.push("\n".to_string());
+        /* 
         //push the graphs to the vector
         for entry in &mismatch_struct_indices {
             write_string.push("\nNormal Graph: mismatch\n".to_string());
@@ -1470,7 +1471,7 @@ fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, norm
             write_string.push("\nHomopolymer Graph: insert\n".to_string());
             write_string.push(saved_indices.homopolymer_insert_graph_sections[*entry].clone());
         }
-        
+        */
         index = index + 50;
         for entry in write_string{
             //print!("{}", entry);
