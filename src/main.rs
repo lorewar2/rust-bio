@@ -27,16 +27,16 @@ const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
 const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/141232172.fastq";
-const SEED: u64 = 3;
+const SEED: u64 = 4;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
-const QUALITY_SCORE: bool = false;
+const QUALITY_SCORE: bool = true;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
-const ALIGNMENT_CHECK: bool = true;
+const USEPACBIODATA: bool = false;
+const ALIGNMENT_CHECK: bool = false;
 
 fn main() {
     let mut seqvec;
@@ -48,9 +48,12 @@ fn main() {
         //println!("{}", get_consensus_from_file(CONSENSUS_FILENAME));
     }
     else {
-        seqvec = get_random_sequences_from_generator(100, 10);
+        seqvec = get_random_sequences_from_generator(2000, 10);
     }
-    run(seqvec);
+    for seq in seqvec{
+        println!{"{}", seq.len()};
+    }
+    //run(seqvec);
 }
 
 fn run(seqvec: Vec<String>) {
