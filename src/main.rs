@@ -365,6 +365,7 @@ fn get_aligned_sequences_to_consensus (sequences: &Vec<Vec<u8>>, consensus: &Vec
                     consensus_index += 1;
                 },
                 bio::alignment::AlignmentOperation::Subst => {
+                    consensus_freq[consensus_index][i] += 2;
                     //println!("{} MisMatch {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);
                     sequence_index += 1;
                     consensus_index += 1;
