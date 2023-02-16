@@ -44,7 +44,7 @@ fn main() {
         let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
         seqvec = vec![pac_bio_consensus];
         seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
-        println!("{}", get_consensus_from_file(CONSENSUS_FILENAME));
+        //println!("{}", get_consensus_from_file(CONSENSUS_FILENAME));
     }
     else {
         seqvec = get_random_sequences_from_generator(100, 10);
