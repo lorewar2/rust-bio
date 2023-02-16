@@ -35,7 +35,8 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
+const USEPACBIODATA: bool = false;
+const ALIGNMENT_CHECK: bool = false;
 
 fn main() {
     let mut seqvec;
@@ -134,7 +135,7 @@ fn run(seqvec: Vec<String>) {
     for seq in &seqvec{
         seq_vec.push(seq.as_bytes().to_vec());
     }
-    if USEPACBIODATA {
+    if USEPACBIODATA && ALIGNMENT_CHECK {
         // align the pacbio consensus and quality scores to the calculated consensus
         let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
         (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
@@ -149,12 +150,10 @@ fn run(seqvec: Vec<String>) {
         let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &alignment, &calc_consensus_freq, seqnum as usize);
         saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len() + 1).collect());
 
-
-
         //try to remove this
         let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
         let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
-        //saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
+        saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
     }
     
@@ -350,6 +349,9 @@ fn get_aligned_sequences_to_consensus (sequences: &Vec<Vec<u8>>, consensus: &Vec
         let alignment = aligner.global(&consensus, &sequence);
         let mut consensus_index = alignment.xstart;
         let mut sequence_index = alignment.ystart;
+        if i == 0 {
+            println!("{:?}", sequence);
+        }
         for op in &alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
