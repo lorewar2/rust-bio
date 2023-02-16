@@ -148,8 +148,6 @@ fn run(seqvec: Vec<String>) {
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
     }
     
-
-
     /////////////////////////////
     //quality score calculation//
     /////////////////////////////
@@ -339,18 +337,18 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
         for op in &alignment.operations {
             match op {
                 bio::alignment::AlignmentOperation::Match => {
-                    aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[pacbio_index] as usize);
+                    aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[calc_index] as usize);
                     pacbio_index += 1;
                     calc_index += 1;
                 },
                 bio::alignment::AlignmentOperation::Subst => {
-                    aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[pacbio_index] as usize);
-                    consensus_match_invalid_indices.push(calc_index);
+                    aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[calc_index] as usize);
+                    consensus_match_invalid_indices.push(pacbio_index);
                     pacbio_index += 1;
                     calc_index += 1;
                 },
                 bio::alignment::AlignmentOperation::Del => {
-                    consensus_match_invalid_indices.push(calc_index);
+                    consensus_match_invalid_indices.push(pacbio_index);
                     calc_index += 1;
                 },
                 bio::alignment::AlignmentOperation::Ins => {
