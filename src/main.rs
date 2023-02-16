@@ -116,7 +116,7 @@ fn run(seqvec: Vec<String>) {
             let mut saved_indices: IndexStruct;
             saved_indices = get_indices_for_homopolymer_debug(&alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
             let (normal_rep, expanded_rep, count_rep) 
-                = get_alignment_with_count_for_debug_2 (&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
+                = get_alignment_with_count_for_debug (&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
             //write results to file
             write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
             //modify the graphs to indicate 
@@ -147,7 +147,7 @@ fn run(seqvec: Vec<String>) {
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), pacbio_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
         let alignment = aligner.global(&normal_consensus, &pacbio_consensus);
 
-        let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug(&normal_consensus, &pacbio_consensus, &alignment, &calc_consensus_freq, seqnum as usize);
+        let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug_2 (&normal_consensus, &pacbio_consensus, &alignment, &calc_consensus_freq, seqnum as usize);
         saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len() + 1).collect());
 
         //try to remove this
