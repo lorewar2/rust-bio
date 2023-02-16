@@ -115,7 +115,7 @@ fn run(seqvec: Vec<String>) {
             let mut saved_indices: IndexStruct;
             saved_indices = get_indices_for_homopolymer_debug(&alignment, &homopolymer_expanded, &normal_topology, &homopolymer_topology);
             let (normal_rep, expanded_rep, count_rep) 
-                = get_alignment_with_count_for_debug(&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
+                = get_alignment_with_count_for_debug_2 (&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
             //write results to file
             write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
             //modify the graphs to indicate 
@@ -202,6 +202,55 @@ fn run(seqvec: Vec<String>) {
         }
     }
     
+}
+
+fn get_alignment_with_count_for_debug_2(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment, count: &Vec<Vec<u32>>, sequence_num: usize) -> (Vec<u8>, Vec<u8>, Vec<Vec<u32>>){
+    let mut vec1_representation = vec![];
+    let mut vec2_representation = vec![];
+    let mut vec1_index: usize = alignment.xstart;
+    let mut vec2_index: usize = alignment.ystart;
+    //initializae count_representation
+    let mut count_representation: Vec<Vec<u32>> = vec![vec![]; sequence_num];
+    for op in &alignment.operations {
+        match op {
+            bio::alignment::AlignmentOperation::Match => {
+                for i in 0..sequence_num {
+                    count_representation[i].push(count[vec1_index][i]);
+                }
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+            },
+            bio::alignment::AlignmentOperation::Subst => {
+                for i in 0..sequence_num {
+                    count_representation[i].push(count[vec1_index][i]);
+                }
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+            },
+            bio::alignment::AlignmentOperation::Del => {
+                for i in 0..sequence_num {
+                    count_representation[i].push(0);
+                }
+                vec1_representation.push(55);
+                vec2_representation.push(vector2[vec2_index]);
+                vec2_index += 1;
+                
+            },
+            bio::alignment::AlignmentOperation::Ins => {
+                vec1_representation.push(vector1[vec1_index]);
+                vec1_index += 1;
+                vec2_representation.push(55);
+            },
+            _ => {},
+        }
+    }
+    //write
+    (vec1_representation, vec2_representation, count_representation)
+    //write_alignment_data_fasta_file("./results/consensus.fa", &vec1_representation, &vec2_representation, &count_representation, sequence_num);
 }
 
 fn get_indices_for_debug(alignment: &bio::alignment::Alignment, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
