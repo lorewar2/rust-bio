@@ -32,11 +32,11 @@ const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
-const QUALITY_SCORE: bool = true;
+const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
 const USEPACBIODATA: bool = true;
-const ALIGNMENT_CHECK: bool = false;
+const ALIGNMENT_CHECK: bool = true;
 
 fn main() {
     let mut seqvec;
