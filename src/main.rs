@@ -55,7 +55,7 @@ fn main() {
 }
 
 fn check_the_alignment_pacbio (seqvec: Vec<String>) {
-    println!("seq file:{} \n consensus file:{}", CONSENSUS_FILENAME, FILENAME);
+    println!("seq file:{} \nconsensus file:{}", CONSENSUS_FILENAME, FILENAME);
     let mut index = 1;
     for seq in &seqvec {
         if index == 1 {
