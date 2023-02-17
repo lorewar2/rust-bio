@@ -1457,7 +1457,7 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
             seqvec2.push(tempseq.iter().cloned().collect::<String>());
         }
     }
-    seqvec
+    seqvec2
 }
 
 //write stuff here 
