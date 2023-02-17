@@ -50,8 +50,8 @@ fn main() {
     else {
         seqvec = get_random_sequences_from_generator(2000, 10);
     }
-    check_the_alignment_pacbio(seqvec);
-    //run(seqvec);
+    //check_the_alignment_pacbio(seqvec);
+    run(seqvec);
 }
 
 fn check_the_alignment_pacbio (seqvec: Vec<String>) {
@@ -162,7 +162,7 @@ fn run(seqvec: Vec<String>) {
     }
     if USEPACBIODATA && ALIGNMENT_CHECK {
         // align the pacbio consensus and quality scores to the calculated consensus
-        /*
+        
         let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
         (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
         let mut saved_indices: IndexStruct;
@@ -181,7 +181,6 @@ fn run(seqvec: Vec<String>) {
         let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
         //saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
-        */
     }
     
     /////////////////////////////
