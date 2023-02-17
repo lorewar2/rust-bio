@@ -58,8 +58,9 @@ fn  check_the_alignment_pacbio (seqvec: Vec<String>) {
     for seq in &seqvec {
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let test = seq.as_bytes().reverse();
-        let alignment = aligner.global(seqvec[0].as_bytes(), seq);
+        let mut test = seq.as_bytes().clone().to_vec();
+        test.reverse();
+        let alignment = aligner.global(seqvec[0].as_bytes(), &test);
         println!("score: {}", alignment.score);
     }
 }
