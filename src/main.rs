@@ -70,7 +70,18 @@ fn check_the_alignment_pacbio (seqvec: Vec<String>) {
 
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        test.reverse();
+        let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+        test = tempseq.iter().cloned().collect::<String>().as_bytes().to_vec();
         let alignment = aligner.global(seqvec[0].as_bytes(), &test);
         let score_reversed = alignment.score;
         //println!("sequence {} reversed score: \t{}", index, alignment.score);
