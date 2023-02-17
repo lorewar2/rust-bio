@@ -50,12 +50,18 @@ fn main() {
     else {
         seqvec = get_random_sequences_from_generator(2000, 10);
     }
-    for seq in seqvec{
-        println!{"{}", seq.len()};
-    }
+    check_the_alignment_pacbio(seqvec);
     //run(seqvec);
 }
 
+fn  check_the_alignment_pacbio (seqvec: Vec<String>) {
+    for seq in &seqvec {
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(seqvec[0].as_bytes(), seq.as_bytes());
+        println!("score: {}", alignment.score);
+    }
+}
 fn run(seqvec: Vec<String>) {
     ////////////////////////
     //normal poa alignment//
@@ -140,12 +146,13 @@ fn run(seqvec: Vec<String>) {
     }
     if USEPACBIODATA && ALIGNMENT_CHECK {
         // align the pacbio consensus and quality scores to the calculated consensus
+        /*
         let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
         (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
         let mut saved_indices: IndexStruct;
         let (calc_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &normal_consensus);
-
-
+        println!("consensus length: {}", normal_consensus.len());
+        
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), pacbio_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
         let alignment = aligner.global(&normal_consensus, &pacbio_consensus);
@@ -158,6 +165,7 @@ fn run(seqvec: Vec<String>) {
         let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
         //saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
         write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
+        */
     }
     
     /////////////////////////////
