@@ -54,10 +54,11 @@ fn main() {
     //run(seqvec);
 }
 
-fn  check_the_alignment_pacbio (seqvec: Vec<String>) {
+fn check_the_alignment_pacbio (seqvec: Vec<String>) {
+    println!("seq file {} cons file {}", CONSENSUS_FILENAME, FILENAME);
     let mut index = 1;
     for seq in &seqvec {
-        if (index == 1) {
+        if index == 1 {
             println!("pacbio sequence");
         }
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
@@ -65,7 +66,7 @@ fn  check_the_alignment_pacbio (seqvec: Vec<String>) {
         let mut test = seq.as_bytes().clone().to_vec();
         let alignment = aligner.global(seqvec[1].as_bytes(), &test);
 
-        println!("sequence {} score: \t{}", index, alignment.score);
+        println!("sequence {} score: \t\t{}", index, alignment.score);
 
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[1].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
