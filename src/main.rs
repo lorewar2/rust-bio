@@ -50,6 +50,11 @@ fn main() {
     else {
         seqvec = get_random_sequences_from_generator(2000, 10);
     }
+    let file = File::open(FILENAME).expect("no such file");
+    let buf = BufReader::new(file);
+    let seqvec: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
     check_the_alignment_pacbio(seqvec);
     //run(seqvec);
 }
