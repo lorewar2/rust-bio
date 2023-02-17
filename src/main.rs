@@ -55,20 +55,26 @@ fn main() {
 }
 
 fn  check_the_alignment_pacbio (seqvec: Vec<String>) {
+    let mut index = 1;
     for seq in &seqvec {
+        if (index == 1) {
+            println!("pacbio sequence");
+        }
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
         let mut test = seq.as_bytes().clone().to_vec();
         let alignment = aligner.local(seqvec[0].as_bytes(), &test);
 
-        println!("score: {}", alignment.score);
+        println!("sequence {} score: \t{}", index, alignment.score);
 
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
         test.reverse();
         let alignment = aligner.local(seqvec[0].as_bytes(), &test);
         
-        println!("reverse score: {}", alignment.score);
+        println!("sequence {} reverse score: \t{}", index, alignment.score);
+        index += 1;
+        println!("");
     }
 }
 fn run(seqvec: Vec<String>) {
