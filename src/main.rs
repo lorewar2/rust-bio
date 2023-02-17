@@ -50,7 +50,7 @@ fn main() {
     else {
         seqvec = get_random_sequences_from_generator(2000, 10);
     }
-    check_the_alignment_pacbio(seqvec);
+    //check_the_alignment_pacbio(seqvec);
     //run(seqvec);
 }
 
@@ -1443,7 +1443,7 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     // rearrange the seq vector median first and rest according median size difference
     seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());
     //reverse complement every line
-    for seq in seqvec {
+    for seq in &seqvec {
         let mut tempseq: Vec<char> = vec![];
         let iterator = seq.chars().rev().into_iter();
         for char in iterator{
@@ -1454,8 +1454,8 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
                 'T' => 'A',
                 _ => ' ',
             });
-            seqvec2.push(tempseq.iter().cloned().collect::<String>());
         }
+        seqvec2.push(tempseq.iter().cloned().collect::<String>());
     }
     seqvec2
 }
