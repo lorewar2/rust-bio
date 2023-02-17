@@ -168,6 +168,7 @@ fn run(seqvec: Vec<String>) {
         let mut saved_indices: IndexStruct;
         let (calc_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &normal_consensus);
         println!("consensus length: {}", normal_consensus.len());
+        println!("mismatched: {}", mismatch_indices.len());
         
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), pacbio_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
