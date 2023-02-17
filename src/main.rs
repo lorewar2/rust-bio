@@ -65,17 +65,17 @@ fn check_the_alignment_pacbio (seqvec: Vec<String>) {
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
         let mut test = seq.as_bytes().clone().to_vec();
         let alignment = aligner.global(seqvec[0].as_bytes(), &test);
-
-        println!("sequence {} score: \t\t{}", index, alignment.score);
+        let score_normal = alignment.score;
+        //println!("sequence {} score: \t\t{}", index, alignment.score);
 
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
         test.reverse();
         let alignment = aligner.global(seqvec[0].as_bytes(), &test);
-        
-        println!("sequence {} reversed score: \t{}", index, alignment.score);
+        let score_reversed = alignment.score;
+        //println!("sequence {} reversed score: \t{}", index, alignment.score);
         index += 1;
-        println!("");
+        println!("{}\t{}", score_normal, score_reversed);
     }
 }
 fn run(seqvec: Vec<String>) {
