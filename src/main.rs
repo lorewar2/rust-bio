@@ -70,18 +70,7 @@ fn check_the_alignment_pacbio (seqvec: Vec<String>) {
 
         let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
         let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let mut tempseq: Vec<char> = vec![];
-            let iterator = seq.chars().rev().into_iter();
-            for char in iterator{
-                tempseq.push(match char {
-                    'A' => 'T',
-                    'C' => 'G',
-                    'G' => 'C',
-                    'T' => 'A',
-                    _ => ' ',
-                });
-            }
-        test = tempseq.iter().cloned().collect::<String>().as_bytes().to_vec();
+        test.reverse();
         let alignment = aligner.global(seqvec[0].as_bytes(), &test);
         let score_reversed = alignment.score;
         //println!("sequence {} reversed score: \t{}", index, alignment.score);
@@ -1388,6 +1377,7 @@ fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
 fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     let mut tempvec: Vec<String> = vec![];
     let mut seqvec: Vec<String> = vec![];
+    let mut seqvec2: Vec<String> = vec![];
     let file = File::open(filename).expect("no such file");
     let buf = BufReader::new(file);
     let lines: Vec<String> = buf.lines()
@@ -1411,9 +1401,24 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
         }
         prev_index = index;
     }
+    //reverse complement every line
+    for seq in &tempvec{
+        let mut tempseq: Vec<char> = vec![];
+        let iterator = seq.chars().rev().into_iter();
+        for char in iterator{
+            tempseq.push(match char {
+                'A' => 'T',
+                'C' => 'G',
+                'G' => 'C',
+                'T' => 'A',
+                _ => ' ',
+            });
+            seqvec2.push(tempseq.iter().cloned().collect::<String>());
+        }
+    }
     //reverse complement every other line
     let mut index = 0;
-    for seq in &tempvec{
+    for seq in &seqvec2{
         if index % 2 != 0 {
             let mut tempseq: Vec<char> = vec![];
             let iterator = seq.chars().rev().into_iter();
