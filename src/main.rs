@@ -1401,24 +1401,10 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
         }
         prev_index = index;
     }
-    //reverse complement every line
-    for seq in &tempvec{
-        let mut tempseq: Vec<char> = vec![];
-        let iterator = seq.chars().rev().into_iter();
-        for char in iterator{
-            tempseq.push(match char {
-                'A' => 'T',
-                'C' => 'G',
-                'G' => 'C',
-                'T' => 'A',
-                _ => ' ',
-            });
-            seqvec2.push(tempseq.iter().cloned().collect::<String>());
-        }
-    }
+
     //reverse complement every other line
     let mut index = 0;
-    for seq in &seqvec2{
+    for seq in &tempvec{
         if index % 2 != 0 {
             let mut tempseq: Vec<char> = vec![];
             let iterator = seq.chars().rev().into_iter();
@@ -1456,7 +1442,22 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     }
     // rearrange the seq vector median first and rest according median size difference
     seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());
-    seqvec
+    //reverse complement every line
+    for seq in &seqvec {
+        let mut tempseq: Vec<char> = vec![];
+        let iterator = seq.chars().rev().into_iter();
+        for char in iterator{
+            tempseq.push(match char {
+                'A' => 'T',
+                'C' => 'G',
+                'G' => 'C',
+                'T' => 'A',
+                _ => ' ',
+            });
+            seqvec2.push(tempseq.iter().cloned().collect::<String>());
+        }
+    }
+    seqvec2
 }
 
 //write stuff here 
