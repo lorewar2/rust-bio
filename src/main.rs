@@ -50,7 +50,7 @@ fn main() {
     else {
         seqvec = get_random_sequences_from_generator(2000, 10);
     }
-    //check_the_alignment_pacbio(seqvec);
+    check_the_alignment_pacbio(seqvec);
     //run(seqvec);
 }
 
