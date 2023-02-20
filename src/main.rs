@@ -33,10 +33,11 @@ const QUALITY_SCORE: bool = true;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
 const USEPACBIODATA: bool = true;
+const REVERSE_COMPLEMENT: bool = false;
 
 // file names
-const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
-const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/141232172.fastq";
+const FILENAME: &str = "./data/PacBioReads/119801767.fasta";
+const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/119801767.fastq";
 const DEBUG_FILE: &str = "./results/debug.txt";
 
 fn main() {
@@ -1256,20 +1257,25 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     }
     // rearrange the seq vector median first and rest according median size difference
     seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());
-    //reverse complement every line
-    for seq in &seqvec {
-        let mut tempseq: Vec<char> = vec![];
-        let iterator = seq.chars().rev().into_iter();
-        for char in iterator{
-            tempseq.push(match char {
-                'A' => 'T',
-                'C' => 'G',
-                'G' => 'C',
-                'T' => 'A',
-                _ => ' ',
-            });
+    if REVERSE_COMPLEMENT {
+        //reverse complement every line
+        for seq in &seqvec {
+            let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+            seqvec2.push(tempseq.iter().cloned().collect::<String>());
         }
-        seqvec2.push(tempseq.iter().cloned().collect::<String>());
+    }
+    else {
+        seqvec2 = seqvec;
     }
     seqvec2
 }
