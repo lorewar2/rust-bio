@@ -1,6 +1,5 @@
 use bio::alignment::pairwise::Scoring;
 use bio::alignment::{poa::*, TextSlice};
-use regex::bytes;
 //bandedpoa/ poa
 use std::{
     fs::File,
@@ -25,18 +24,20 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
-const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/141232172.fastq";
 const SEED: u64 = 4;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.90;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
-const QUALITY_SCORE: bool = false;
+const QUALITY_SCORE: bool = true;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
-const ALIGNMENT_CHECK: bool = true;
+const USEPACBIODATA: bool = false;
+
+// file names
+const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
+const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/141232172.fastq";
+const DEBUG_FILE: &str = "./results/debug.txt";
 
 fn main() {
     let mut seqvec;
@@ -54,30 +55,6 @@ fn main() {
     run(seqvec);
 }
 
-fn check_the_alignment_pacbio (seqvec: Vec<String>) {
-    println!("seq file:{} \nconsensus file:{}", CONSENSUS_FILENAME, FILENAME);
-    let mut index = 1;
-    for seq in &seqvec {
-        if index == 1 {
-            println!("pacbio sequence");
-        }
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let mut test = seq.as_bytes().clone().to_vec();
-        let alignment = aligner.global(seqvec[0].as_bytes(), &test);
-        let score_normal = alignment.score;
-        //println!("sequence {} score: \t\t{}", index, alignment.score);
-
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        test.reverse();
-        let alignment = aligner.global(seqvec[0].as_bytes(), &test);
-        let score_reversed = alignment.score;
-        //println!("sequence {} reversed score: \t{}", index, alignment.score);
-        index += 1;
-        println!("{}\t{}", score_normal, score_reversed);
-    }
-}
 fn run(seqvec: Vec<String>) {
     ////////////////////////
     //normal poa alignment//
@@ -151,47 +128,14 @@ fn run(seqvec: Vec<String>) {
         }
     }
     /////////////////////////////
-    //alignment check         ///
-    /////////////////////////////
-    let mut mismatch_indices: Vec<usize> = vec![];
-    let mut pacbio_quality_scores: Vec<usize> = vec![];
-    let mut seq_vec = vec![];
-    let pacbio_alignment: bio::alignment::Alignment;
-    for seq in &seqvec{
-        seq_vec.push(seq.as_bytes().to_vec());
-    }
-    if USEPACBIODATA && ALIGNMENT_CHECK {
-        // align the pacbio consensus and quality scores to the calculated consensus
-        
-        let pacbio_consensus: Vec<u8> = get_consensus_from_file(CONSENSUS_FILENAME).bytes().collect();
-        (pacbio_quality_scores, mismatch_indices, pacbio_alignment) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
-        let mut saved_indices: IndexStruct;
-        let (calc_consensus_freq, _) = get_aligned_sequences_to_consensus (&seq_vec, &normal_consensus);
-        println!("consensus length: {}", normal_consensus.len());
-        println!("mismatched: {}", mismatch_indices.len());
-        
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(normal_consensus.len(), pacbio_consensus.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&normal_consensus, &pacbio_consensus);
-
-        let (rep_normal, rep_pacbio, rep_count) = get_alignment_with_count_for_debug_2 (&normal_consensus, &pacbio_consensus, &alignment, &calc_consensus_freq, seqnum as usize);
-        saved_indices = get_indices_for_debug(&pacbio_alignment, &normal_topology, &(0..pacbio_consensus.len() + 1).collect());
-
-        //try to remove this
-        let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
-        let aligner = Aligner::new(scoring, seqvec[0].as_bytes());
-        //saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, aligner.graph());
-        write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &rep_normal, &rep_pacbio, &rep_count, seqnum as usize, &saved_indices);
-    }
-    
-    /////////////////////////////
     //quality score calculation//
     /////////////////////////////
     if QUALITY_SCORE {
         let mut invalid_info: Vec<(usize, usize, bool, bool, bool)> = vec![]; //index, node_id, parallel invalid, match invalid, quality invalid
         // calculate and get the quality scores
-        let (quality_scores, parallel_validity, base_count_vec) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
+        let (quality_scores, parallel_validity, base_count_vec, debug_strings) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
         if USEPACBIODATA {
+            let (pacbio_quality_scores, mismatch_indices, _) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
             // get invalid indices is quality score is too low
             for index in 0..quality_scores.len() {
                 if parallel_validity[index] == true {
@@ -203,17 +147,18 @@ fn run(seqvec: Vec<String>) {
                         None => {invalid_info.push((index, normal_topology[index], false, true, false));},
                     }
                 }
-                if quality_scores[index] < 0.0 {
+                if quality_scores[index] < 30.0 {
                     match invalid_info.iter().position(|&r| r.0 == index) {
                         Some(position) => {invalid_info[position].4 = true;},
                         None => {invalid_info.push((index, normal_topology[index], false, false, true));},
                     }
                 }
             }
-            println!("ERROR COUNT: {}", invalid_info.len());
+            println!("INVALID COUNT: {}", invalid_info.len());
             // write the zoomed in graphs for invalid and low quality entries.
             write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores);
             write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
+            write_debug_data_to_file(DEBUG_FILE, debug_strings);
         }
         else {
             for index in 0..quality_scores.len() {
@@ -221,199 +166,31 @@ fn run(seqvec: Vec<String>) {
                     invalid_info.push((index, normal_topology[index], true, false, false));
                 }
             }
-            println!("ERROR COUNT: {}", invalid_info.len());
+            println!("INVALID COUNT: {}", invalid_info.len());
             write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34]);
             write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
             write_quality_score_graph("./results/normal_graph.fa", normal_graph);
+            write_debug_data_to_file(DEBUG_FILE, debug_strings);
         }
-    }
-    
-}
-
-fn get_alignment_with_count_for_debug_2(vector1: &Vec<u8>, vector2: &Vec<u8>, alignment: &bio::alignment::Alignment, count: &Vec<Vec<u32>>, sequence_num: usize) -> (Vec<u8>, Vec<u8>, Vec<Vec<u32>>){
-    let mut vec1_representation = vec![];
-    let mut vec2_representation = vec![];
-    let mut vec1_index: usize = alignment.xstart;
-    let mut vec2_index: usize = alignment.ystart;
-    //initializae count_representation
-    let mut count_representation: Vec<Vec<u32>> = vec![vec![]; sequence_num];
-    for op in &alignment.operations {
-        match op {
-            bio::alignment::AlignmentOperation::Match => {
-                for i in 0..sequence_num {
-                    count_representation[i].push(count[vec1_index][i]);
-                }
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-            },
-            bio::alignment::AlignmentOperation::Subst => {
-                for i in 0..sequence_num {
-                    count_representation[i].push(count[vec1_index][i]);
-                }
-                vec1_representation.push(vector1[vec1_index]);
-                vec1_index += 1;
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-            },
-            bio::alignment::AlignmentOperation::Del => {
-                for i in 0..sequence_num {
-                    count_representation[i].push(0);
-                }
-                vec1_representation.push(55);
-                vec2_representation.push(vector2[vec2_index]);
-                vec2_index += 1;
-                
-            },
-            bio::alignment::AlignmentOperation::Ins => {
-                vec1_representation.push(vector1[vec1_index]);
-                for i in 0..sequence_num {
-                    count_representation[i].push(count[vec1_index][i]);
-                }
-                vec1_index += 1;
-                vec2_representation.push(55);
-            },
-            _ => {},
-        }
-    }
-    //write
-    (vec1_representation, vec2_representation, count_representation)
-    //write_alignment_data_fasta_file("./results/consensus.fa", &vec1_representation, &vec2_representation, &count_representation, sequence_num);
-}
-
-fn get_indices_for_debug(alignment: &bio::alignment::Alignment, normal_topo: &Vec<usize>, homopolymer_topo: &Vec<usize>) 
-                            -> IndexStruct {
-
-    let mut normal_mismatches: Vec<usize> = vec![];
-    let mut normal_insertions: Vec<usize> = vec![];
-    let mut normal_deletions: Vec<usize> = vec![];
-
-    let mut homopolymer_mismatches: Vec<usize> = vec![];
-    let mut homopolymer_insertions: Vec<usize> = vec![];
-    let mut homopolymer_deletions: Vec<usize> = vec![];
-
-    let mut alignment_mismatches: Vec<usize> = vec![];
-    let mut alignment_insertions: Vec<usize> = vec![];
-    let mut alignment_deletions: Vec<usize> = vec![];
-    let mut alignment_index: usize = 0;
-
-    let mut normal_index: usize = alignment.xstart;
-    let mut homopolymer_index: usize = alignment.ystart;
-    for op in &alignment.operations {
-        match op {
-            bio::alignment::AlignmentOperation::Match => {
-                normal_index += 1;
-                homopolymer_index += 1;
-            },
-            bio::alignment::AlignmentOperation::Subst => {
-                normal_mismatches.push(normal_index);
-                homopolymer_mismatches.push(homopolymer_index);
-                alignment_mismatches.push(alignment_index);
-                normal_index += 1;
-                homopolymer_index += 1;
-            },
-            bio::alignment::AlignmentOperation::Del => {
-                homopolymer_insertions.push(homopolymer_index);
-                normal_deletions.push(normal_index);
-                alignment_deletions.push(alignment_index);
-                homopolymer_index += 1;
-            },
-            bio::alignment::AlignmentOperation::Ins => {
-                normal_insertions.push(normal_index);
-                homopolymer_deletions.push(homopolymer_index);
-                alignment_insertions.push(alignment_index);
-                normal_index += 1;
-            },
-            _ => {},
-        }
-        alignment_index += 1;
-    }
-    //calculate normal and homopolymer positions in respective graphs using the topology indices
-    for index in 0..normal_mismatches.len() {
-        normal_mismatches[index] = normal_topo[normal_mismatches[index] as usize] as usize;
-    }
-    for index in 0..normal_insertions.len() {
-        normal_insertions[index] = normal_topo[normal_insertions[index] as usize] as usize;
-    }
-    for index in 0..normal_deletions.len() {
-        //normal_deletions[index] = normal_topo[normal_deletions[index] as usize] as usize;
-    }
-    for index in 0..homopolymer_mismatches.len() {
-        homopolymer_mismatches[index] = homopolymer_topo[homopolymer_mismatches[index] as usize] as usize;
-    }
-    for index in 0..homopolymer_insertions.len() {
-        homopolymer_insertions[index] = homopolymer_topo[homopolymer_insertions[index] as usize] as usize;
-    }
-    for index in 0..homopolymer_deletions.len() {
-        homopolymer_deletions[index] = homopolymer_topo[homopolymer_deletions[index] as usize] as usize;
-    }
-    IndexStruct {
-        normal_mismatch_indices: normal_mismatches,
-        normal_mismatch_graph_sections: vec![],
-        normal_insert_indices: normal_insertions,
-        normal_insert_graph_sections: vec![],
-        normal_del_indices: normal_deletions,
-        normal_del_graph_sections: vec![],
-        homopolymer_mismatch_indices: homopolymer_mismatches,
-        homopolymer_mismatch_graph_sections: vec![],
-        homopolymer_insert_indices: homopolymer_insertions,
-        homopolymer_insert_graph_sections: vec![],
-        homopolymer_del_indices: homopolymer_deletions,
-        homopolymer_del_graph_sections: vec![],
-        aligned_mismatch_indices: alignment_mismatches,
-        aligned_insert_indices: alignment_insertions,
-        aligned_del_indices: alignment_deletions,
     }
 }
 
-fn get_aligned_sequences_to_consensus (sequences: &Vec<Vec<u8>>, consensus: &Vec<u8>) -> (Vec<Vec<u32>>, i32)  {
-    //use homopolymer compressions sequences to make expanded consensus //make function
-    let mut total_score = 0;
-    let mut consensus_freq: Vec<Vec<u32>> = vec![vec![0; sequences.len()]; consensus.len()];
-    let mut i: usize = 0;
-    for sequence in sequences {
-        let mut sequence_base_freq: Vec<u32> = vec![0; sequence.len()];
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(consensus.len(), sequence.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&consensus, &sequence);
-        let mut consensus_index = alignment.xstart;
-        let mut sequence_index = alignment.ystart;
-        if i == 0 {
-            println!("{:?}", sequence);
-        }
-        for op in &alignment.operations {
-            match op {
-                bio::alignment::AlignmentOperation::Match => {
-                    //println!("{} Match {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);                    
-                    consensus_freq[consensus_index][i] += 1;
-                    sequence_base_freq[sequence_index] += 1;
-                    sequence_index += 1;
-                    consensus_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Subst => {
-                    consensus_freq[consensus_index][i] += 2;
-                    //println!("{} MisMatch {}", homopolymer_consensus[consensus_index], homopolymer_seq.bases[homopolymer_index]);
-                    sequence_index += 1;
-                    consensus_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Del => {
-                    //println!("Del {}", homopolymer_seq.bases[homopolymer_index]);
-                    sequence_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Ins => {
-                    //println!("Ins {}", homopolymer_consensus[consensus_index]);
-                    consensus_index += 1;
-                    
-                },
-                _ => {},
-            }
-        }
-        total_score += alignment.score;
-        i += 1;
-
+fn write_debug_data_to_file (filename: impl AsRef<Path>, debug_strings: Vec<String>) {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(filename)
+        .unwrap();
+    writeln!(file,
+        "{:?}\nFILE: {}\n DEBUG",
+        chrono::offset::Local::now(), FILENAME)
+        .expect("result file cannot be written");
+    for line in debug_strings {
+        writeln!(file,
+            "{}",
+            line)
+            .expect("result file cannot be written");
     }
-    (consensus_freq, total_score)
 }
 
 fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &Vec<u8>, pacbio_quality_scores: String) -> (Vec<usize>, Vec<usize>, bio::alignment::Alignment) {
@@ -453,10 +230,12 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
     }
     (aligned_pacbio_scores_vec, consensus_match_invalid_indices, alignment)
 }
-fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>) {
+fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>, Vec<String>) {
     let mut quality_scores: Vec<f64> = vec![];
     let mut validity: Vec<bool> = vec![];
     let mut base_count_vec: Vec<Vec<usize>> = vec![];
+    let mut debug_strings: Vec<String> = vec![];
+    let mut temp_string: String;
     //run all the consensus through get indices
     for i in 0..consensus.len() {
         // skip the indices which are in the passed consensus
@@ -470,24 +249,30 @@ fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &
         if i != consensus.len() - 1 {
             target_node_child = Some(topology[i + 1]);
         }
-        println!("{}->{}", consensus[i] as char, topology[i]);
-        let (parallel_nodes, parallel_num_incoming_seq) = get_parallel_nodes_with_topology_cut (skip_nodes, seq_num,  topology[i], target_node_parent, target_node_child, graph);
-        let (temp_quality_score, temp_count_mismatch, temp_base_counts) = base_quality_score_calculation (seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
+        temp_string = format!("BASE NODE: {} ({})", consensus[i] as char, topology[i]);
+        println!("{}", temp_string);
+        debug_strings.push(temp_string.clone());
+        let (parallel_nodes, parallel_num_incoming_seq, temp_debug_strings) = get_parallel_nodes_with_topology_cut (skip_nodes, seq_num,  topology[i], target_node_parent, target_node_child, graph);
+        debug_strings = [debug_strings, temp_debug_strings].concat();
+        let (temp_quality_score, temp_count_mismatch, temp_base_counts, temp_debug_strings) = base_quality_score_calculation (seq_num, parallel_nodes, parallel_num_incoming_seq, consensus[i], graph);
+        debug_strings = [debug_strings, temp_debug_strings].concat();
         quality_scores.push(temp_quality_score);
         validity.push(temp_count_mismatch);
         base_count_vec.push(temp_base_counts);
     }
-    (quality_scores, validity, base_count_vec)
+    (quality_scores, validity, base_count_vec, debug_strings)
 }
 
-fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usize, target_node: usize, target_node_parent: Option<usize>, target_node_child: Option<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>) {
+fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usize, target_node: usize, target_node_parent: Option<usize>, target_node_child: Option<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, Vec<String>) {
     // vector initialization
+    let mut debug_strings: Vec<String> = vec![];
     let mut topology = Topo::new(graph);
     let mut topologically_ordered_nodes = Vec::new();
     let mut parallel_nodes: Vec<usize> = vec![];
     let mut parallel_node_parents: Vec<usize> = vec![];
     let mut parallel_num_incoming_seq: Vec<usize> = vec![];
     let mut direction: Option<Direction> = None;
+    let temp_string;
     // make a topologically ordered list
     while let Some(node) = topology.next(graph) {
         topologically_ordered_nodes.push(node.index());
@@ -512,10 +297,14 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
     match direction {
         Some(x) => {
             if x == Incoming {
-                println!("Going backwards");
+                temp_string = format!("Going backwards");
+                println!("{}", temp_string);
+                debug_strings.push(temp_string.clone());
             }
             else {
-                println!("Going forward");
+                temp_string = format!("Going forward");
+                println!("{}", temp_string);
+                debug_strings.push(temp_string.clone());
             }
         }
         None => {}
@@ -529,15 +318,16 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
             parallel_num_incoming_seq.push(num_seq_through_target_base - 1);
         }
         parallel_num_incoming_seq.push(num_seq_through_target_base);
-        return (parallel_nodes, parallel_num_incoming_seq);
+        return (parallel_nodes, parallel_num_incoming_seq, debug_strings);
     }
     // go back skip_count and go forward skip_count + 3 and check if parent and child are before and after target_node_position,
     // iterate skip_count until all sequences are found, break on 5
     let mut seq_found_so_far = num_seq_through_target_base;
     let mut bubble_size = 1;
     while seq_found_so_far < total_seq  && bubble_size < NUM_OF_ITER_FOR_PARALLEL {
-        //incoming back to front
-        (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far) = move_in_direction_and_find_crossing_nodes (&skip_nodes, total_seq, direction.unwrap(), parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, target_node, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
+        let temp_debug_strings;
+        (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, temp_debug_strings) = move_in_direction_and_find_crossing_nodes (&skip_nodes, total_seq, direction.unwrap(), parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, target_node, bubble_size, &topologically_ordered_nodes, target_node_topological_position, graph);
+        debug_strings = [debug_strings, temp_debug_strings].concat();
         bubble_size += 1;
     }
     if USEPACBIODATA {
@@ -545,10 +335,12 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
     }
     parallel_num_incoming_seq.push(num_seq_through_target_base);
     parallel_nodes.push(target_node);
-    (parallel_nodes, parallel_num_incoming_seq)
+    (parallel_nodes, parallel_num_incoming_seq, debug_strings)
 }
 
-fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq: usize, direction: Direction, mut parallel_nodes: Vec<usize>, mut parallel_node_parents: Vec<usize>, mut parallel_num_incoming_seq: Vec<usize>, mut seq_found_so_far: usize, focus_node: usize, bubble_size: usize, topologically_ordered_nodes: &Vec<usize>, target_node_position: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, Vec<usize>, usize) {
+fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq: usize, direction: Direction, mut parallel_nodes: Vec<usize>, mut parallel_node_parents: Vec<usize>, mut parallel_num_incoming_seq: Vec<usize>, mut seq_found_so_far: usize, focus_node: usize, bubble_size: usize, topologically_ordered_nodes: &Vec<usize>, target_node_position: usize, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<usize>, Vec<usize>, Vec<usize>, usize, Vec<String>) {
+    let mut debug_strings: Vec<String> = vec![];
+    let mut temp_string: String;
     // get a list of x back_iterations back nodes
     let back_nodes_list = get_xiterations_direction_nodes(direction, bubble_size, vec![], focus_node, graph);
     // get a list of all forward nodes 0..(back_iterations + 3) for all the back_nodes
@@ -561,21 +353,32 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
             }
         }
     }
-    println!("{} {:?} {:?}", bubble_size, back_nodes_list, edge_nodes_list);
+    temp_string = format!("Iteration: {} BackNodes: {:?} CheckNodes: {:?}", bubble_size, back_nodes_list, edge_nodes_list);
+    println!("{}", temp_string);
+    debug_strings.push(temp_string.clone());
+    
     // get the two slices of topologically_ordered_list back front
     let mut slice: Vec<Vec<usize>> = [topologically_ordered_nodes[0..target_node_position].to_vec(), topologically_ordered_nodes[target_node_position + 1..topologically_ordered_nodes.len()].to_vec()].to_vec();
     // for debugging
     if slice[0].len() > 10 {
-        println!("back slice {:?}", slice[0][(slice[0].len() - 10)..slice[0].len()].to_vec());
+        temp_string = format!("Back slice {:?}", slice[0][(slice[0].len() - 10)..slice[0].len()].to_vec());
+        println!("{}", temp_string);
+        debug_strings.push(temp_string.clone());
     }
     else {
-        println!("back slice {:?}", slice[0][0..slice[0].len()].to_vec());
+        temp_string = format!("Back slice {:?}", slice[0][0..slice[0].len()].to_vec());
+        println!("{}", temp_string);
+        debug_strings.push(temp_string.clone());
     }
     if slice[1].len() > 10 {
-        println!("front slice {:?}", slice[1][0..10].to_vec());
+        temp_string = format!("Front slice {:?}", slice[1][0..10].to_vec());
+        println!("{}", temp_string);
+        debug_strings.push(temp_string.clone());
     }
     else {
-        println!("front slice {:?}", slice[1][0..slice[1].len()].to_vec());
+        temp_string = format!("Front slice {:?}", slice[1][0..slice[1].len()].to_vec());
+        println!("{}", temp_string);
+        debug_strings.push(temp_string.clone());
     }
 
     if direction == Outgoing {
@@ -620,7 +423,9 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
                 }
                 parallel_nodes.push(*edge_node);
                 parallel_node_parents.push(*edge_node_parent);
-                print!("success node {} parent {}\n", *edge_node, *edge_node_parent);
+                temp_string = format!("success node {} parent/child {}\n", *edge_node, *edge_node_parent);
+                println!("{}", temp_string);
+                debug_strings.push(temp_string.clone());
                 // get the edge weight and add to seq_found_so_far
                 let mut incoming_weight = 0;
                 if direction == Incoming {
@@ -641,7 +446,7 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
             
         }
     }
-    (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far)
+    (parallel_nodes, parallel_node_parents, parallel_num_incoming_seq, seq_found_so_far, debug_strings)
 }
 
 fn get_direction_nodes (direction: Direction, iteration: usize, mut direction_node_list: Vec<usize>, focus_node: usize, graph: &Graph<u8, i32, Directed, usize>) -> Vec<usize> {
@@ -680,11 +485,12 @@ fn get_xiterations_direction_nodes (direction: Direction ,iteration: usize, mut 
     direction_node_list
 }
 
-fn base_quality_score_calculation (mut total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> (f64, bool, Vec<usize>) {
+fn base_quality_score_calculation (mut total_seq: usize, indices_of_parallel_nodes: Vec<usize>, seq_through_parallel_nodes: Vec<usize>, base: u8, graph: &Graph<u8, i32, Directed, usize>) -> (f64, bool, Vec<usize>, Vec<String>) {
     if USEPACBIODATA {
         total_seq -= 1;
     }
     //variable initialization
+    let mut debug_strings: Vec<String> = Vec::new();
     let mut count_mismatch: bool = false;
     let error_score: f64;
     let quality_score;
@@ -727,10 +533,14 @@ fn base_quality_score_calculation (mut total_seq: usize, indices_of_parallel_nod
     }
     match count_mismatch {
         true => {
-            println!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!! \n", base_a_count, base_c_count, base_g_count, base_t_count);
+            let temp_string = format!("base counts A:{} C:{} G:{} T:{} MISMATCHHHH!!!!!!!!!!!!!!!!!!!!! \n", base_a_count, base_c_count, base_g_count, base_t_count);
+            println!("{}", temp_string);
+            debug_strings.push(temp_string.clone());
         },
         false => {
-            println!("base counts A:{} C:{} G:{} T:{} \n", base_a_count, base_c_count, base_g_count, base_t_count);
+            let temp_string = format!("base counts A:{} C:{} G:{} T:{}\n", base_a_count, base_c_count, base_g_count, base_t_count);
+            println!("{}", temp_string);
+            debug_strings.push(temp_string.clone());
         }
     }
     
@@ -769,7 +579,7 @@ fn base_quality_score_calculation (mut total_seq: usize, indices_of_parallel_nod
     quality_score = (-10.00) * error_score.log10();
     //println!("quality score: {}", quality_score);
     //println!("");
-    (quality_score, count_mismatch, base_counts)
+    (quality_score, count_mismatch, base_counts, debug_strings)
 }
 
 fn calculate_binomial (n: usize, k: usize, prob: f64) -> f64 {
