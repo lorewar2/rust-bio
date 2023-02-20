@@ -32,7 +32,7 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = true;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = false;
+const USEPACBIODATA: bool = true;
 
 // file names
 const FILENAME: &str = "./data/PacBioReads/141232172.fasta";
@@ -101,7 +101,7 @@ fn run(seqvec: Vec<String>) {
         }
         let homopolymer_consensus;
         let homopolymer_topology;
-        (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus(); //poa
+        (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus();
         //get graph
         let homopolymer_graph: &Graph<u8, i32, Directed, usize> = aligner.graph();
         //use homopolymer compressions sequences to make expanded consensus
@@ -135,7 +135,7 @@ fn run(seqvec: Vec<String>) {
         // calculate and get the quality scores
         let (quality_scores, parallel_validity, base_count_vec, debug_strings) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
         if USEPACBIODATA {
-            let (pacbio_quality_scores, mismatch_indices, _) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
+            let (pacbio_quality_scores, mismatch_indices, aligned_pacbio_bases) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
             // get invalid indices is quality score is too low
             for index in 0..quality_scores.len() {
                 if parallel_validity[index] == true {
@@ -156,7 +156,7 @@ fn run(seqvec: Vec<String>) {
             }
             println!("INVALID COUNT: {}", invalid_info.len());
             // write the zoomed in graphs for invalid and low quality entries.
-            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores);
+            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores, &aligned_pacbio_bases);
             write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
             write_debug_data_to_file(DEBUG_FILE, debug_strings);
         }
@@ -167,7 +167,7 @@ fn run(seqvec: Vec<String>) {
                 }
             }
             println!("INVALID COUNT: {}", invalid_info.len());
-            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34]);
+            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34], &vec![65; quality_scores.len()]);
             write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
             write_quality_score_graph("./results/normal_graph.fa", normal_graph);
             write_debug_data_to_file(DEBUG_FILE, debug_strings);
@@ -193,11 +193,12 @@ fn write_debug_data_to_file (filename: impl AsRef<Path>, debug_strings: Vec<Stri
     }
 }
 
-fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &Vec<u8>, pacbio_quality_scores: String) -> (Vec<usize>, Vec<usize>, bio::alignment::Alignment) {
+fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &Vec<u8>, pacbio_quality_scores: String) -> (Vec<usize>, Vec<usize>, Vec<u8>) {
     let mut consensus_match_invalid_indices: Vec<usize> = vec![];
     let pacbio_consensus_vec: Vec<u8> = pacbio_consensus.bytes().collect();
     let pacbio_quality_scores_vec: Vec<char> =  pacbio_quality_scores.chars().collect();
     let mut aligned_pacbio_scores_vec: Vec<usize> = vec![];
+    let mut aligned_pacbio_bases:Vec<u8> = vec![];
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(calculated_consensus.len(), pacbio_consensus_vec.len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&calculated_consensus, &pacbio_consensus_vec);
@@ -207,11 +208,13 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
         match op {
             bio::alignment::AlignmentOperation::Match => {
                 aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[calc_index] as usize);
+                aligned_pacbio_bases.push(pacbio_consensus_vec[pacbio_index]);
                 pacbio_index += 1;
                 calc_index += 1;
             },
             bio::alignment::AlignmentOperation::Subst => {
                 aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[calc_index] as usize);
+                aligned_pacbio_bases.push(pacbio_consensus_vec[pacbio_index]);
                 consensus_match_invalid_indices.push(pacbio_index);
                 pacbio_index += 1;
                 calc_index += 1;
@@ -222,13 +225,14 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
                 
             },
             bio::alignment::AlignmentOperation::Ins => {
+                aligned_pacbio_bases.push(126);
                 aligned_pacbio_scores_vec.push(33);
                 pacbio_index += 1;
             },
             _ => {},
         }
     }
-    (aligned_pacbio_scores_vec, consensus_match_invalid_indices, alignment)
+    (aligned_pacbio_scores_vec, consensus_match_invalid_indices, aligned_pacbio_bases)
 }
 fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>, Vec<String>) {
     let mut quality_scores: Vec<f64> = vec![];
@@ -1497,7 +1501,7 @@ fn write_scores_result_file(filename: impl AsRef<Path>, normal_score: i32, homop
             .expect("result file cannot be written");
 }
 
-fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, invalid_info: &Vec<(usize, usize, bool, bool, bool)>, base_count_vec: &Vec<Vec<usize>>, pacbioquality: &Vec<usize>) {
+fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Vec<f64>, consensus: &Vec<u8>, topology: &Vec<usize>, invalid_info: &Vec<(usize, usize, bool, bool, bool)>, base_count_vec: &Vec<Vec<usize>>, pacbioquality: &Vec<usize>, aligned_pacbio_bases: &Vec<u8>) {
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
@@ -1515,8 +1519,8 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
         }
         if pacbioquality[index % pacbioquality.len()] != 33 {
             writeln!(file,
-                "{}[{:>6}]\t\t -> {:>8.3}[{}] \tinvalidity =[p,m,q] {:?}\t base_counts = ACGT{:?}",
-                consensus[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), print_info, base_count_vec[index])
+                "{} {} [{:>6}]\t\t -> {:>8.3}[{}] \tinvalidity =[p,m,q] {:?}\t base_counts = ACGT{:?}",
+                consensus[index] as char, aligned_pacbio_bases[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), print_info, base_count_vec[index])
                 .expect("result file cannot be written");
         }
     }
