@@ -221,13 +221,13 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
             },
             bio::alignment::AlignmentOperation::Del => {
                 consensus_match_invalid_indices.push(pacbio_index);
-                calc_index += 1;
+                aligned_pacbio_bases.push(126);
+                pacbio_index += 1;
                 
             },
             bio::alignment::AlignmentOperation::Ins => {
-                aligned_pacbio_bases.push(126);
                 aligned_pacbio_scores_vec.push(33);
-                pacbio_index += 1;
+                calc_index += 1;
             },
             _ => {},
         }
