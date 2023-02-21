@@ -1,24 +1,11 @@
-use bio::alignment::pairwise::Scoring;
-use bio::alignment::{poa::*, TextSlice};
-//bandedpoa/ poa
-use std::{
-    fs::File,
-    fs::OpenOptions,
-    io::{prelude::*, BufReader},
-    path::Path,
-};
+use bio::alignment::{poa::*, TextSlice, pairwise::Scoring};
+use std::{fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
-use rand::{Rng,SeedableRng};
-use rand::rngs::StdRng;
-use petgraph::dot::{Dot};
-use petgraph::{Directed, Graph, Incoming, Outgoing, Direction};
-use std::collections::HashMap;
-use petgraph::graph::NodeIndex;
-use std::{fmt, cmp};
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use petgraph::{Directed, Graph, Incoming, Outgoing, Direction, dot::Dot, graph::NodeIndex, visit::Topo};
 use statrs::function::factorial::binomial;
 use logaddexp::LogAddExp;
 use libm::exp;
-use petgraph::visit::Topo;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
@@ -33,11 +20,11 @@ const QUALITY_SCORE: bool = true;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
 const USEPACBIODATA: bool = true;
-const REVERSE_COMPLEMENT: bool = false;
+const REVERSE_COMPLEMENT: bool = true;
 
 // file names
-const FILENAME: &str = "./data/PacBioReads/119801767.fasta";
-const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/119801767.fastq";
+const FILENAME: &str = "./data/PacBioReads/155060338.fasta";
+const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/155060338.fastq";
 const DEBUG_FILE: &str = "./results/debug.txt";
 
 fn main() {
@@ -134,28 +121,35 @@ fn run(seqvec: Vec<String>) {
     if QUALITY_SCORE {
         let mut invalid_info: Vec<(usize, usize, bool, bool, bool)> = vec![]; //index, node_id, parallel invalid, match invalid, quality invalid
         // calculate and get the quality scores
-        let (quality_scores, parallel_validity, base_count_vec, debug_strings) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
+        let (quality_scores, parallel_validity, base_count_vec, mut debug_strings) = get_consensus_quality_scores(seqnum as usize, &normal_consensus, &normal_topology, normal_graph);
         if USEPACBIODATA {
+            let mut parallel_count = 0;
+            let mut mismatch_count = 0;
+            let mut quality_count = 0;
             let (pacbio_quality_scores, mismatch_indices, aligned_pacbio_bases) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
             // get invalid indices is quality score is too low
             for index in 0..quality_scores.len() {
                 if parallel_validity[index] == true {
                     invalid_info.push((index, normal_topology[index], true, false, false));
+                    parallel_count += 1;
                 }
                 if mismatch_indices.contains(&index) {
                     match invalid_info.iter().position(|&r| r.0 == index) {
                         Some(position) => {invalid_info[position].3 = true;},
                         None => {invalid_info.push((index, normal_topology[index], false, true, false));},
                     }
+                    mismatch_count += 1;
                 }
                 if quality_scores[index] < 30.0 {
                     match invalid_info.iter().position(|&r| r.0 == index) {
                         Some(position) => {invalid_info[position].4 = true;},
                         None => {invalid_info.push((index, normal_topology[index], false, false, true));},
                     }
+                    quality_count += 1;
                 }
             }
-            println!("INVALID COUNT: {}", invalid_info.len());
+            println!("INVALID COUNT: {} parallel err: {} mismatch err: {} quality err: {}", invalid_info.len(), parallel_count, mismatch_count, quality_count);
+            debug_strings.push(format!("INVALID COUNT: {} parallel err: {} mismatch err: {} quality err: {}", invalid_info.len(), parallel_count, mismatch_count, quality_count));
             // write the zoomed in graphs for invalid and low quality entries.
             write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores, &aligned_pacbio_bases);
             write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
