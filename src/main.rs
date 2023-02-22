@@ -225,6 +225,7 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
             _ => {},
         }
     }
+    println!("pacbio index {} pacbio length {}", pacbio_index, pacbio_consensus_vec.len());
     (aligned_pacbio_scores_vec, consensus_match_invalid_indices, aligned_pacbio_bases)
 }
 fn get_consensus_quality_scores(seq_num: usize, consensus: &Vec<u8>, topology: &Vec<usize>, graph: &Graph<u8, i32, Directed, usize>) -> (Vec<f64>, Vec<bool>, Vec<Vec<usize>>, Vec<String>) {
