@@ -202,25 +202,25 @@ fn get_quality_score_aligned (pacbio_consensus: String, calculated_consensus: &V
     for op in &alignment.operations {
         match op {
             bio::alignment::AlignmentOperation::Match => {
-                aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[calc_index] as usize);
-                aligned_pacbio_bases.push(pacbio_consensus_vec[calc_index]);
+                aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[pacbio_index] as usize);
+                aligned_pacbio_bases.push(pacbio_consensus_vec[pacbio_index]);
                 pacbio_index += 1;
                 calc_index += 1;
             },
             bio::alignment::AlignmentOperation::Subst => {
-                aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[calc_index] as usize);
-                aligned_pacbio_bases.push(pacbio_consensus_vec[calc_index]);
+                aligned_pacbio_scores_vec.push(pacbio_quality_scores_vec[pacbio_index] as usize);
+                aligned_pacbio_bases.push(pacbio_consensus_vec[pacbio_index]);
                 consensus_match_invalid_indices.push(calc_index);
                 pacbio_index += 1;
                 calc_index += 1;
             },
             bio::alignment::AlignmentOperation::Del => {
-                calc_index += 1;
-            },
-            bio::alignment::AlignmentOperation::Ins => {
                 aligned_pacbio_bases.push(126);
                 aligned_pacbio_scores_vec.push(33);
                 pacbio_index += 1;
+            },
+            bio::alignment::AlignmentOperation::Ins => {
+                calc_index += 1;
             },
             _ => {},
         }
