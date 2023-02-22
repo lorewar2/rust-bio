@@ -23,8 +23,8 @@ const USEPACBIODATA: bool = true;
 const REVERSE_COMPLEMENT: bool = true;
 
 // file names
-const FILENAME: &str = "./data/PacBioReads/155060338.fasta";
-const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/155060338.fastq";
+const FILENAME: &str = "./data/PacBioReads/46793296.fasta";
+const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/46793296.fastq";
 const DEBUG_FILE: &str = "./results/debug.txt";
 
 fn main() {
@@ -1517,12 +1517,10 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
             Some(position) => {print_info = (invalid_info[position].2, invalid_info[position].3, invalid_info[position].4)},
             None => {},
         }
-        if pacbioquality[index % pacbioquality.len()] != 33 {
-            writeln!(file,
-                "{} {} [{:>6}]\t\t -> {:>8.3}[{}] \tinvalidity =[p,m,q] {:?}\t base_counts = ACGT{:?}",
-                consensus[index] as char, aligned_pacbio_bases[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), print_info, base_count_vec[index])
-                .expect("result file cannot be written");
-        }
+        writeln!(file,
+            "{} {} [{:>6}]\t\t -> {:>8.3}[{}] \tinvalidity =[p,m,q] {:?}\t base_counts = ACGT{:?}",
+            consensus[index] as char, aligned_pacbio_bases[index] as char, topology[index], quality_scores[index], (pacbioquality[index % pacbioquality.len()] - 33), print_info, base_count_vec[index])
+            .expect("result file cannot be written");
     }
 }
 
