@@ -54,7 +54,7 @@ fn main() {
             seqvec = get_fasta_sequences_from_file([INPUT_READ_FOLDER_PATH, &file_name, ".fasta"].concat());
             seqvec = check_the_scores_and_change_alignment(seqvec, &pac_bio_consensus);
             seqvec.insert(0, pac_bio_consensus);
-            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, &file_name].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
+            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, &file_name, ".fastq"].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
             index += 1;
         }
     }
