@@ -70,7 +70,7 @@ fn main() {
             seqvec = get_fasta_sequences_from_file([INPUT_READ_FOLDER_PATH, INPUT_FILE_NAME, ".fasta"].concat());
             seqvec = check_the_scores_and_change_alignment(seqvec, &pac_bio_consensus);
             seqvec.insert(0, pac_bio_consensus);
-            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
+            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME, ".fastq"].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
         }
         else {
             //create a folder 
@@ -111,7 +111,9 @@ fn check_the_scores_and_change_alignment (seqvec: Vec<String>, pacbio_consensus:
         let alignment = aligner.global(&pacbio_consensus.as_bytes(), &seq.as_bytes());
         if alignment.score < 1000 {
             invert = true;
+            break;
         }
+        break;
     }
     if invert {
         println!("Scores are too low, inverting sequences.");
