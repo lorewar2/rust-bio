@@ -1,5 +1,5 @@
 use bio::alignment::{poa::*, TextSlice, pairwise::Scoring};
-use std::{fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
+use std::{fs, fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use petgraph::{Directed, Graph, Incoming, Outgoing, Direction, dot::Dot, graph::NodeIndex, visit::Topo};
@@ -13,37 +13,133 @@ const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const SEED: u64 = 4;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
-const ERROR_PROBABILITY: f64 = 0.90;
+const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = true;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
 const USEPACBIODATA: bool = true;
-const REVERSE_COMPLEMENT: bool = true;
+const PACBIOALLFILES: bool = true;
 
-// file names
-const FILENAME: &str = "./data/PacBioReads/46793296.fasta";
-const CONSENSUS_FILENAME: &str = "./data/PacBioConsensus/46793296.fastq";
-const DEBUG_FILE: &str = "./results/debug.txt";
+// file names input
+const INPUT_FILE_NAME: &str = "46793296";
+const INPUT_READ_FOLDER_PATH: &str = "./data/PacBioReads/";
+const INPUT_CONSENSUS_FOLDER_PATH: &str = "./data/PacBioConsensus/";
 
+// file names output
+const OUTPUT_RESULT_PATH: &str = "./results/";
 fn main() {
-    let mut seqvec;
-    //read the pacbio consensus
-    if USEPACBIODATA {
-        let pac_bio_consensus =  get_consensus_from_file(CONSENSUS_FILENAME);
-        seqvec = vec![pac_bio_consensus];
-        seqvec = [seqvec, get_fasta_sequences_from_file(FILENAME)].concat();
-        //println!("{}", get_consensus_from_file(CONSENSUS_FILENAME));
+    if PACBIOALLFILES {
+        // get the file names of reads
+        let mut file_name_vec: Vec<String> = vec![];
+        let paths = fs::read_dir(INPUT_CONSENSUS_FOLDER_PATH).unwrap();
+        let mut total_length = 0;
+        for path in paths {
+            let mut temp = path.unwrap().file_name().to_string_lossy().to_string();
+            temp.truncate(temp.len() - 6);
+            file_name_vec.push(temp);
+            total_length += 1;
+        }
+        let mut index = 1;
+        // run all reads
+        for file_name in file_name_vec {
+            let mut seqvec;
+            println!("Running read {}, {}/{}", file_name, index, total_length);
+            //create a folder 
+            fs::create_dir([OUTPUT_RESULT_PATH, &file_name].concat()).ok();
+            //create corrosponding result files
+            let (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name) = create_required_result_files(&[OUTPUT_RESULT_PATH, &file_name].concat());
+            let pac_bio_consensus =  get_consensus_from_file([INPUT_CONSENSUS_FOLDER_PATH, &file_name, ".fastq"].concat());
+            seqvec = get_fasta_sequences_from_file([INPUT_READ_FOLDER_PATH, &file_name, ".fasta"].concat());
+            seqvec = check_the_scores_and_change_alignment(seqvec, &pac_bio_consensus);
+            seqvec.insert(0, pac_bio_consensus);
+            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, &file_name].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
+            index += 1;
+        }
     }
     else {
-        seqvec = get_random_sequences_from_generator(2000, 10);
+        let mut seqvec;
+        // read the pacbio consensus
+        if USEPACBIODATA {
+            //create a folder 
+            fs::create_dir([OUTPUT_RESULT_PATH, INPUT_FILE_NAME].concat()).ok();
+            //create corrosponding result files
+            let (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name) = create_required_result_files(&[OUTPUT_RESULT_PATH, INPUT_FILE_NAME].concat());
+            let pac_bio_consensus =  get_consensus_from_file([INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME, ".fastq"].concat());
+            seqvec = get_fasta_sequences_from_file([INPUT_READ_FOLDER_PATH, INPUT_FILE_NAME, ".fasta"].concat());
+            seqvec = check_the_scores_and_change_alignment(seqvec, &pac_bio_consensus);
+            seqvec.insert(0, pac_bio_consensus);
+            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
+        }
+        else {
+            //create a folder 
+            fs::create_dir([OUTPUT_RESULT_PATH, "random"].concat()).ok();
+            //create corrosponding result files
+            let (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name) = create_required_result_files(&[OUTPUT_RESULT_PATH, "random"].concat());
+            seqvec = get_random_sequences_from_generator(2000, 10);
+            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name);
+        }
     }
-    //check_the_alignment_pacbio(seqvec);
-    run(seqvec);
 }
 
-fn run(seqvec: Vec<String>) {
+fn create_required_result_files (path: &str) -> (String, String, String, String, String, String, String) {
+    let output_debug_file_name: String = [path, "/debug.txt"].concat();
+    let output_consensus_file_name: String = [path, "/consensus.fa"].concat();
+    let output_scores_file_name: String = [path, "/results.txt"].concat();
+    let output_normal_graph_file_name: String = [path, "/normal_graph.fa"].concat();
+    let output_homopolymer_graph_file_name: String = [path, "/homopolymer_graph.fa"].concat();
+    let output_quality_graph_file_name: String = [path, "/quality_graphs.fa"].concat();
+    let output_quality_file_name: String = [path, "/quality_scores.fa"].concat();
+    File::create([path, "/consensus.fa"].concat()).ok();
+    File::create([path, "/filtered_data.fa"].concat()).ok();
+    File::create([path, "/results.txt"].concat()).ok();
+    File::create([path, "/normal_graph.fa"].concat()).ok();
+    File::create([path, "/homopolymer_graph.fa"].concat()).ok();
+    File::create([path, "/quality_scores.fa"].concat()).ok();
+    File::create([path, "/quality_graphs.fa"].concat()).ok();
+    File::create([path, "/debug.txt"].concat()).ok();
+    (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name)
+}
+fn check_the_scores_and_change_alignment (seqvec: Vec<String>, pacbio_consensus: &String) -> Vec<String> {
+    let mut invert: bool = false;
+    let mut seqvec2: Vec<String> = vec![];
+    // check the scores
+    for seq in &seqvec{
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(pacbio_consensus.len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&pacbio_consensus.as_bytes(), &seq.as_bytes());
+        if alignment.score < 1000 {
+            invert = true;
+        }
+    }
+    if invert {
+        println!("Scores are too low, inverting sequences.");
+        //reverse complement every line
+        for seq in &seqvec {
+            let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+            seqvec2.push(tempseq.iter().cloned().collect::<String>());
+        }
+    }
+    else {
+        seqvec2 = seqvec;
+    }
+    seqvec2
+}
+
+fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_file_name: String, 
+    output_consensus_file_name: String, output_scores_file_name: String, output_normal_graph_file_name: String, 
+    output_homopolymer_graph_file_name: String, output_quality_graph_file_name: String, output_quality_file_name: String) {
     ////////////////////////
     //normal poa alignment//
     ////////////////////////
@@ -62,16 +158,16 @@ fn run(seqvec: Vec<String>) {
     let normal_topology;
     (normal_consensus, normal_topology) = aligner.poa.consensus(); //just poa
 
-    //get scores of sequences compared to normal consensus 
+    // get scores of sequences compared to normal consensus 
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
-    //get the normal graph
+    // get the normal graph
     let normal_graph = aligner.graph();
 
     if HOMOPOLYMER {
     ////////////////////////////
     //compressed poa alignment//
     ////////////////////////////
-        //make homopolymer compression vector
+        // make homopolymer compression vector
         let mut homopolymer_vec: Vec<HomopolymerSequence> = vec![];
         for seq in &seqvec{
             homopolymer_vec.push(HomopolymerSequence::new(seq.as_bytes()));
@@ -90,12 +186,12 @@ fn run(seqvec: Vec<String>) {
         let homopolymer_consensus;
         let homopolymer_topology;
         (homopolymer_consensus, homopolymer_topology) = aligner.poa.consensus();
-        //get graph
+        // get graph
         let homopolymer_graph: &Graph<u8, i32, Directed, usize> = aligner.graph();
-        //use homopolymer compressions sequences to make expanded consensus
+        // use homopolymer compressions sequences to make expanded consensus
         let (homopolymer_consensus_freq, homopolymer_score) = get_aligned_homopolymer_sequences_to_homopolymer_consensus(&homopolymer_vec, &homopolymer_consensus);
         let (expanded_consensus, homopolymer_expanded) =  calculate_and_get_expansion (&homopolymer_vec, &homopolymer_consensus, &homopolymer_consensus_freq);
-        //get the scores of expanded consensus compared to sequences
+        // get the scores of expanded consensus compared to sequences
         let expanded_score = get_consensus_score(&seqvec, &expanded_consensus);
         println!("expanded score:{}", expanded_score);
 
@@ -108,10 +204,10 @@ fn run(seqvec: Vec<String>) {
             let (normal_rep, expanded_rep, count_rep) 
                 = get_alignment_with_count_for_debug (&normal_consensus,&expanded_consensus, &alignment, &homopolymer_consensus_freq, seqnum as usize);
             //write results to file
-            write_scores_result_file("./results/results.txt", normal_score, homopolymer_score, expanded_score);
+            write_scores_result_file(output_scores_file_name, normal_score, homopolymer_score, expanded_score);
             //modify the graphs to indicate 
-            saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs("./results/normal_graph.fa", "./results/homopolymer_graph.fa", saved_indices, normal_graph, homopolymer_graph);
-            write_alignment_and_zoomed_graphs_fasta_file("./results/consensus.fa", &normal_rep, &expanded_rep,
+            saved_indices = modify_and_write_the_graphs_and_get_zoomed_graphs(output_normal_graph_file_name.clone(), output_homopolymer_graph_file_name, saved_indices, normal_graph, homopolymer_graph);
+            write_alignment_and_zoomed_graphs_fasta_file(output_consensus_file_name, &normal_rep, &expanded_rep,
                 &count_rep, seqnum as usize, &saved_indices);
         }
     }
@@ -126,7 +222,7 @@ fn run(seqvec: Vec<String>) {
             let mut parallel_count = 0;
             let mut mismatch_count = 0;
             let mut quality_count = 0;
-            let (pacbio_quality_scores, mismatch_indices, aligned_pacbio_bases) = get_quality_score_aligned (get_consensus_from_file(CONSENSUS_FILENAME), &normal_consensus, get_quality_from_file(CONSENSUS_FILENAME));
+            let (pacbio_quality_scores, mismatch_indices, aligned_pacbio_bases) = get_quality_score_aligned (get_consensus_from_file(input_consensus_file_name.clone()), &normal_consensus, get_quality_from_file(input_consensus_file_name.clone()));
             // get invalid indices is quality score is too low
             for index in 0..quality_scores.len() {
                 if parallel_validity[index] == true {
@@ -140,7 +236,7 @@ fn run(seqvec: Vec<String>) {
                     }
                     mismatch_count += 1;
                 }
-                if quality_scores[index] < 30.0 {
+                if quality_scores[index] < 10.0 {
                     match invalid_info.iter().position(|&r| r.0 == index) {
                         Some(position) => {invalid_info[position].4 = true;},
                         None => {invalid_info.push((index, normal_topology[index], false, false, true));},
@@ -151,9 +247,9 @@ fn run(seqvec: Vec<String>) {
             println!("INVALID COUNT: {} parallel err: {} mismatch err: {} quality err: {}", invalid_info.len(), parallel_count, mismatch_count, quality_count);
             debug_strings.push(format!("INVALID COUNT: {} parallel err: {} mismatch err: {} quality err: {}", invalid_info.len(), parallel_count, mismatch_count, quality_count));
             // write the zoomed in graphs for invalid and low quality entries.
-            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores, &aligned_pacbio_bases);
-            write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
-            write_debug_data_to_file(DEBUG_FILE, debug_strings);
+            write_quality_scores_to_file(output_quality_file_name, &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores, &aligned_pacbio_bases);
+            write_zoomed_quality_score_graphs (output_quality_graph_file_name, &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
+            write_debug_data_to_file(output_debug_file_name, debug_strings);
         }
         else {
             for index in 0..quality_scores.len() {
@@ -162,10 +258,10 @@ fn run(seqvec: Vec<String>) {
                 }
             }
             println!("INVALID COUNT: {}", invalid_info.len());
-            write_quality_scores_to_file("./results/quality_scores.fa", &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34], &vec![65; quality_scores.len()]);
-            write_zoomed_quality_score_graphs ("./results/quality_graphs.fa", &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
-            write_quality_score_graph("./results/normal_graph.fa", normal_graph);
-            write_debug_data_to_file(DEBUG_FILE, debug_strings);
+            write_quality_scores_to_file(output_quality_file_name, &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34], &vec![65; quality_scores.len()]);
+            write_zoomed_quality_score_graphs (output_quality_graph_file_name, &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
+            write_quality_score_graph(output_normal_graph_file_name, normal_graph);
+            write_debug_data_to_file(output_debug_file_name, debug_strings);
         }
     }
 }
@@ -178,7 +274,7 @@ fn write_debug_data_to_file (filename: impl AsRef<Path>, debug_strings: Vec<Stri
         .unwrap();
     writeln!(file,
         "{:?}\nFILE: {}\n DEBUG",
-        chrono::offset::Local::now(), FILENAME)
+        chrono::offset::Local::now(), INPUT_FILE_NAME)
         .expect("result file cannot be written");
     for line in debug_strings {
         writeln!(file,
@@ -1186,7 +1282,6 @@ fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
 fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     let mut tempvec: Vec<String> = vec![];
     let mut seqvec: Vec<String> = vec![];
-    let mut seqvec2: Vec<String> = vec![];
     let file = File::open(filename).expect("no such file");
     let buf = BufReader::new(file);
     let lines: Vec<String> = buf.lines()
@@ -1251,32 +1346,12 @@ fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
     }
     // rearrange the seq vector median first and rest according median size difference
     seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());
-    if REVERSE_COMPLEMENT {
-        //reverse complement every line
-        for seq in &seqvec {
-            let mut tempseq: Vec<char> = vec![];
-            let iterator = seq.chars().rev().into_iter();
-            for char in iterator{
-                tempseq.push(match char {
-                    'A' => 'T',
-                    'C' => 'G',
-                    'G' => 'C',
-                    'T' => 'A',
-                    _ => ' ',
-                });
-            }
-            seqvec2.push(tempseq.iter().cloned().collect::<String>());
-        }
-    }
-    else {
-        seqvec2 = seqvec;
-    }
-    seqvec2
+    seqvec
 }
 
 //write stuff here 
 
-fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct){
+fn write_alignment_and_zoomed_graphs_fasta_file (filename: impl AsRef<Path>, normal: &Vec<u8>, expanded: &Vec<u8>, count_representation: &Vec<Vec<u32>>, sequence_num: usize, saved_indices: &IndexStruct) {
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
@@ -1284,7 +1359,7 @@ fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, norm
         .unwrap();
     writeln!(file,
         "{:?}\nFILE: {}\n>Normal consensus vs Expanded consensus with counts:",
-        chrono::offset::Local::now(), FILENAME)
+        chrono::offset::Local::now(), INPUT_FILE_NAME)
         .expect("result file cannot be written");
 
     let mut index = 0;
@@ -1368,7 +1443,6 @@ fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, norm
             write_string.push("\n".to_string());
         }
         write_string.push("\n".to_string());
-        /* 
         //push the graphs to the vector
         for entry in &mismatch_struct_indices {
             write_string.push("\nNormal Graph: mismatch\n".to_string());
@@ -1394,7 +1468,6 @@ fn write_alignment_and_zoomed_graphs_fasta_file(filename: impl AsRef<Path>, norm
             write_string.push("\nHomopolymer Graph: insert\n".to_string());
             write_string.push(saved_indices.homopolymer_insert_graph_sections[*entry].clone());
         }
-        */
         index = index + 50;
         for entry in write_string{
             //print!("{}", entry);
@@ -1415,7 +1488,7 @@ fn write_quality_score_graph (normal_filename: impl AsRef<Path>, normal_graph: &
         .unwrap();
     writeln!(normal_file,
         "{:?} \nFILE: {}\n{}",
-        chrono::offset::Local::now(), FILENAME, normal_dot)
+        chrono::offset::Local::now(), INPUT_FILE_NAME, normal_dot)
         .expect("result file cannot be written");
 }
 
@@ -1474,7 +1547,7 @@ fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRe
         .unwrap();
     writeln!(normal_file,
         "{:?} \nFILE: {}\n{}",
-        chrono::offset::Local::now(), FILENAME, normal_dot)
+        chrono::offset::Local::now(), INPUT_FILE_NAME, normal_dot)
         .expect("result file cannot be written");
     let mut homopolymer_file = OpenOptions::new()
     .write(true)
@@ -1483,7 +1556,7 @@ fn modify_and_write_the_graphs_and_get_zoomed_graphs (normal_filename: impl AsRe
     .unwrap();
     writeln!(homopolymer_file,
         "{:?} \nFILE: {}\n{}",
-        chrono::offset::Local::now(), FILENAME, homopolymer_dot)
+        chrono::offset::Local::now(), INPUT_FILE_NAME, homopolymer_dot)
         .expect("result file cannot be written");
     saved_indices
     //println!("{}", normal_dot);
@@ -1497,7 +1570,7 @@ fn write_scores_result_file(filename: impl AsRef<Path>, normal_score: i32, homop
         .unwrap();
     writeln!(file,
             "{:?} \nFILE: {}\nNormal score:\t\t\t{}\nHomopolymer score:\t\t{}\nExpanded score:\t\t\t{}",
-            chrono::offset::Local::now(), FILENAME, normal_score, homopolymer_score, expanded_score)
+            chrono::offset::Local::now(), INPUT_FILE_NAME, normal_score, homopolymer_score, expanded_score)
             .expect("result file cannot be written");
 }
 
@@ -1509,7 +1582,7 @@ fn write_quality_scores_to_file (filename: impl AsRef<Path>, quality_scores: &Ve
         .unwrap();
     writeln!(file,
         "{:?}\nFILE: {}\n>Quality score data & graphs:",
-        chrono::offset::Local::now(), FILENAME)
+        chrono::offset::Local::now(), INPUT_FILE_NAME)
         .expect("result file cannot be written");
     for index in 0..consensus.len() {
         let mut print_info = (false, false, false);
@@ -1532,7 +1605,7 @@ fn write_zoomed_quality_score_graphs (filename: impl AsRef<Path>, invalid_info: 
         .unwrap();
     writeln!(file,
         "{:?}\nFILE: {}\n>Quality score data & graphs:",
-        chrono::offset::Local::now(), FILENAME)
+        chrono::offset::Local::now(), INPUT_FILE_NAME)
         .expect("result file cannot be written");
     for entry in invalid_info {
         let graph_section = get_zoomed_graph_section (graph, &entry.1, &0, 3);
