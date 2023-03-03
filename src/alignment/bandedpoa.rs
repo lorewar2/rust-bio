@@ -8,14 +8,11 @@ use crate::alignment::pairwise::{MatchFunc, Scoring};
 use petgraph::Direction::Outgoing;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::Topo;
-use crate::alignment::sparse;
-use petgraph::{Directed, Graph, Incoming};
 
+use petgraph::{Directed, Graph, Incoming};
+const BAND_SIZE: i32 = 50;
 pub const MIN_SCORE: i32 = -858_993_459; // negative infinity; see alignment/pairwise/mod.rs
 pub type POAGraph = Graph<u8, i32, Directed, usize>;
-
-const BANDLENGTH: usize = 10;
-const KMER: usize = 10;
 
 // Unlike with a total order we may have arbitrary successors in the
 // traceback matrix. I have not yet figured out what the best level of
@@ -84,7 +81,7 @@ impl Traceback {
         let matrix = vec![
             vec![
                 TracebackCell {
-                    score: -200,
+                    score: 0,
                     op: AlignmentOperation::Match(None)
                 };
                 n + 1
@@ -251,11 +248,10 @@ impl<F: MatchFunc> Aligner<F> {
     }
 
     /// Add the alignment of the last query to the graph.
-    pub fn add_to_graph(&mut self, seq_number: u8) -> &mut Self {
-        //ba
-
+    pub fn add_to_graph(&mut self) -> &mut Self {
         let alignment = self.traceback.alignment();
-        self.poa.add_alignment(&alignment, &self.query, seq_number);
+        self.poa.add_alignment(&alignment, &self.query);
+        //println!("{:?}", Dot::with_config(&self.poa.graph, &[Config::EdgeNoLabel])); //added
         self
     }
 
@@ -307,7 +303,6 @@ pub struct Poa<F: MatchFunc> {
     scoring: Scoring<F>,
     pub graph: POAGraph,
     pub node_seq_tracker: Vec<Vec<u8>>,
-    pub consensus: Vec<u8>,
 }
 
 impl<F: MatchFunc> Poa<F> {
@@ -318,7 +313,7 @@ impl<F: MatchFunc> Poa<F> {
     /// * `scoring` - the score struct
     /// * `poa` - the partially ordered reference alignment
     pub fn new(scoring: Scoring<F>, graph: POAGraph) -> Self {
-        Poa { scoring, graph, node_seq_tracker: Vec::new(), consensus: Vec::new() }
+        Poa { scoring, graph, node_seq_tracker: Vec::new() }
     }
 
     /// Create a new POA graph from an initial reference sequence and alignment penalties.
@@ -341,31 +336,22 @@ impl<F: MatchFunc> Poa<F> {
             graph.add_edge(prev, node, 1);
             prev = node;
         }
-        let consensus = seq.to_vec();
         //println!("Reference Graph: {:?}", Dot::with_config(&graph, &[Config::EdgeIndexLabel])); //added
-        Poa { scoring, graph, node_seq_tracker, consensus }
+        Poa { scoring, graph, node_seq_tracker }
     }
 
     /// A global Needleman-Wunsch aligner on partially ordered graphs.
     ///
     /// # Arguments
     /// * `query` - the query TextSlice to align against the internal graph member
-    pub fn global(&mut self, query: TextSlice) -> Traceback {
+    pub fn global(&self, query: TextSlice) -> Traceback {
         assert!(self.graph.node_count() != 0);
-        //get the consensus with corrosponding node numbers
-        let topological_indices;
-        (self.consensus, topological_indices) = self.consensus();
-        //run the consensus on lcs++
-        let mut matches = sparse::find_kmer_matches(&self.consensus, query, KMER);
-        //convert consensus indices to topological indices
-        for i in 0..matches.len(){
-            matches[i] = (topological_indices[matches[i].0 as usize] as u32, matches[i].1);
-        }
-        //println!("{:?}", matches);
         // dimensions of the traceback matrix
         let (m, n) = (self.graph.node_count(), query.len());
         let mut traceback = Traceback::with_capacity(m, n);
         traceback.initialize_scores(self.scoring.gap_open);
+        //println!("Printing the  empty Initialized matrix");//added
+        //traceback.print(&self.graph, query);//added
         traceback.set(
             0,
             0,
@@ -374,25 +360,12 @@ impl<F: MatchFunc> Poa<F> {
                 op: AlignmentOperation::Match(None),
             },
         );
-        //calculate all the node positions in matches
-        let mut topo = Topo::new(&self.graph);
-        let mut node_pos_vec = vec![];
-        while let Some(node) = topo.next(&self.graph) {
-            let mut tempval = -1;
-            for i in 0..matches.len(){
-                if matches[i].0 == node.index() as u32 {
-                    tempval = i as i32;
-                }
-            }
-            node_pos_vec.push(tempval);
-        }
         // construct the score matrix (O(n^2) space)
+        //println!("Topological sort of reference graph!!"); //added
         let mut topo = Topo::new(&self.graph);
-        let mut i = 0;
+        let mut topo_index = 0;
+        let mut prev_max_score_and_query_position: (i32, i32) = (MIN_SCORE, 0);
         while let Some(node) = topo.next(&self.graph) {
-            //find the node in matches
-            let mut node_position_in_matches = node_pos_vec[i];
-            i += 1;
             // reference base and index
             let r = self.graph.raw_nodes()[node.index()].weight; // reference base at previous index
             //println!("Previous Index Reference Node being processed index:{} base:{}", node.index(), r); //added
@@ -401,34 +374,21 @@ impl<F: MatchFunc> Poa<F> {
             // iterate over the predecessors of this node
             let prevs: Vec<NodeIndex<usize>> =
                 self.graph.neighbors_directed(node, Incoming).collect();
-            if node_position_in_matches == -1 {
-                'outer: for prev in &prevs {
-                    for i in 0..matches.len(){
-                        if matches[i].0 == prev.index() as u32 {
-                            node_position_in_matches = i as i32;
-                            break 'outer;
-                        }
-                    }
-                }
-            }
-            
             //println!("Nodes with directed edges to current node:{:?}", prevs); //added
             // query base and its index in the DAG (traceback matrix rows)
-            for (j_p, q) in query.iter().enumerate() {
-                if node_position_in_matches != -1 && matches[node_position_in_matches as usize].1 as usize  > BANDLENGTH {
-                    if j_p + 1 > matches[node_position_in_matches as usize].1 as usize + BANDLENGTH {
-                        break;
-                    }
-                    else if j_p + 1  < matches[node_position_in_matches as usize].1 as usize - BANDLENGTH {
-                        continue;
-                    }
-                }
-                else if node_position_in_matches == -1 {
-                    if j_p + 1 > BANDLENGTH {
-                        break;
-                    }
-                }
+            //println!("{}", topo_index);
+            let mut max_score_and_query_position: (i32, i32) = (MIN_SCORE, 0);
+            let mut skip = 0;
+            if prev_max_score_and_query_position.1 > BAND_SIZE*5 {
+                skip = (prev_max_score_and_query_position.1 - BAND_SIZE*5) as usize;
+            }
+            for (j_p, q) in query.iter().enumerate().skip(skip) {
                 let j = j_p + 1;
+                if topo_index != 0 {
+                    if (j_p as i32) > (prev_max_score_and_query_position.1 + (BAND_SIZE)){                       
+                        break;
+                    }
+                }
                 // match and deletion scores for the first reference base
                 let max_cell = if prevs.is_empty() {
                     //println!("NO directed, matching score from i = 0 and j = {} : {} + {}", j - 1 ,traceback.get(0, j - 1).score , self.scoring.match_fn.score(r, *q));
@@ -468,9 +428,15 @@ impl<F: MatchFunc> Poa<F> {
                         op: AlignmentOperation::Ins(Some(i - 1)),
                     },
                 );
-                //println!("{}", score.score);
+                if score.score >= max_score_and_query_position.0 {
+                    max_score_and_query_position.0 = score.score;
+                    max_score_and_query_position.1 = j_p as i32;
+                    //println!("position saved {}", j_p);
+                }
                 traceback.set(i, j, score);
             }
+            topo_index += 1;
+            prev_max_score_and_query_position = max_score_and_query_position;
         }
         traceback
     }
@@ -481,88 +447,60 @@ impl<F: MatchFunc> Poa<F> {
     ///
     /// * `aln` - The alignment of the new sequence to the graph
     /// * `seq` - The sequence being incorporated
-    pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice, seq_number: u8) {
-        let mut prev: NodeIndex<usize> = NodeIndex::new(0);
+    pub fn add_alignment(&mut self, aln: &Alignment, seq: TextSlice) {
+        let head = Topo::new(&self.graph).next(&self.graph).unwrap();
+        let mut prev: NodeIndex<usize> = NodeIndex::new(head.index());
         let mut i: usize = 0;
-        let mut start_seq_unmatched: bool = false;
+        let mut edge_not_connected: bool = false;
         for op in aln.operations.iter() {
             match op {
-                AlignmentOperation::Match(None) => { //previously i += 1;
-                    //println!("");
+                AlignmentOperation::Match(None) => {
                     let node: NodeIndex<usize> = NodeIndex::new(0);
-                    if (seq[i] != self.graph.raw_nodes()[0].weight) && (seq[i] != b'X') {
-                        //println!("Start node mismatch with sequence, do something");
-                        let new_node = self.graph.add_node(seq[i]);
-                        self.node_seq_tracker.push(vec![seq_number]);
-                        if start_seq_unmatched == true {
-                            //println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                            self.graph.add_edge(prev, new_node, 1);
-                            start_seq_unmatched = false;
-                        }
-                        prev = new_node;
+                    if (seq[i] != self.graph.raw_nodes()[head.index()].weight) && (seq[i] != b'X') {
+                        let node = self.graph.add_node(seq[i]);
+                        prev = node;
                     }
-                    else {
-                        //println!("Start node match with sequence, do nothing");
-                        if start_seq_unmatched == true {
-                            //println!("matchn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                            self.graph.add_edge(prev, node, 1);
-                            prev = node;
-                            start_seq_unmatched = false;
-                        }
+                    if edge_not_connected {
+                        self.graph.add_edge(prev, node, 1);
+                        prev = node;
+                        edge_not_connected = false;
                     }
                     i += 1;
                 }
-                AlignmentOperation::Match(Some((_, p))) => {   
+                AlignmentOperation::Match(Some((_, p))) => {
                     let node = NodeIndex::new(*p);
                     if (seq[i] != self.graph.raw_nodes()[*p].weight) && (seq[i] != b'X') {
-                        //println!("mpx making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                         let node = self.graph.add_node(seq[i]);
-                        self.node_seq_tracker.push(vec![seq_number]);
                         self.graph.add_edge(prev, node, 1);
                         prev = node;
                     } else {
                         // increment node weight
                         match self.graph.find_edge(prev, node) {
                             Some(edge) => {
-                                //println!("mpm incr edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
                                 *self.graph.edge_weight_mut(edge).unwrap() += 1;
-                                self.node_seq_tracker[node.index()].push(seq_number);
                             }
                             None => {
-                                // where the previous node was newly added
-                                //println!("mpm making edge from {}->{}",self.graph.raw_nodes()[prev.index()].weight, seq[i]);
-                                self.graph.add_edge(prev, node, 1);
-                                self.node_seq_tracker[node.index()].push(seq_number);
+                                if prev.index() != head.index() {
+                                    self.graph.add_edge(prev, node, 1);
+                                }
                             }
                         }
                         prev = NodeIndex::new(*p);
                     }
                     i += 1;
                 }
-                AlignmentOperation::Ins(None) => { // previously just i += 1
-                    //insertion at the start, take care if the sequence
+                AlignmentOperation::Ins(None) => {
                     let node = self.graph.add_node(seq[i]);
-                    self.node_seq_tracker.push(vec![seq_number]);
-                    if start_seq_unmatched == true {
-                        //println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                        self.graph.add_edge(prev, node, 1);
+                    if edge_not_connected {
+                        self.graph.add_edge(prev, node, 1);    
                     }
                     prev = node;
-                    start_seq_unmatched = true;
+                    edge_not_connected = true;
                     i += 1;
                 }
                 AlignmentOperation::Ins(Some(_)) => {
-                    if start_seq_unmatched == true {
-                        let node = NodeIndex::new(0);
-                        //println!("insn making edge from {}->{}", seq[i], self.graph.raw_nodes()[prev.index()].weight);
-                        self.graph.add_edge(prev, node, 1);
-                        prev = node;
-                        start_seq_unmatched = false;
-                    }
                     let node = self.graph.add_node(seq[i]);
-                    self.node_seq_tracker.push(vec![seq_number]);
-                    //println!("insp making edge from {}->{}", self.graph.raw_nodes()[prev.index()].weight, seq[i]);
-                    self.graph.add_edge(prev, node, 1); 
+                    self.graph.add_edge(prev, node, 1);
                     prev = node;
                     i += 1;
                 }
@@ -570,9 +508,9 @@ impl<F: MatchFunc> Poa<F> {
             }
         }
     }
-    pub fn consensus(&self) -> (Vec<u8>, Vec<u8>) {
+    pub fn consensus(&self) -> (Vec<u8>, Vec<usize>) {
         let mut output: Vec<u8> = vec![];
-        let mut topopos: Vec<u8> = vec![];
+        let mut topopos: Vec<usize> = vec![];
         let mut topo = Topo::new(&self.graph);
         let mut topo_indices = Vec::new();
         let mut max_index = 0;
@@ -581,11 +519,12 @@ impl<F: MatchFunc> Poa<F> {
         while let Some(node) = topo.next(&self.graph) {
             topo_indices.push(node);
             if max_index < node.index(){
-                max_index = node.index()
+                max_index = node.index();
             }
         }
         topo_indices.reverse();
         //define score and nextinpath vectors with capacity of num nodes.
+        let mut weight_scores: Vec<i32> = vec![0; max_index + 1];
         let mut scores: Vec<f64> = vec![0.0; max_index + 1];
         let mut next_in_path: Vec<usize> = vec![0; max_index + 1];
         //iterate thorugh the nodes in revere
@@ -613,14 +552,21 @@ impl<F: MatchFunc> Poa<F> {
             }
             scores[node.index()] = best_weight_score_edge.0 as f64 + best_weight_score_edge.1;
             next_in_path[node.index()] = best_weight_score_edge.2;
+            weight_scores[node.index()] = best_weight_score_edge.0;
         }
-        //println!("{:?}", scores);
-        //println!("{:?}", next_in_path);
         let mut pos = scores.iter().position(|&r| r == max_score).unwrap();
-        //using traceback print out the max sequence
-        //println!("Consensus");
+        //calculate the start weight score
+        let mut consensus_started: bool = false;
+        let weight_average = scores[pos] / scores.len() as f64;
+        let weight_threshold = weight_average as i32 / 2; 
         while pos != 123456789 {
-            topopos.push(pos as u8);
+            //continue if starting weight score is too low
+            if consensus_started == false && weight_scores[pos] < weight_threshold {
+                pos = next_in_path[pos];
+                continue;
+            }
+            consensus_started = true;
+            topopos.push(pos as usize);
             output.push(self.graph.raw_nodes()[pos].weight);
             pos = next_in_path[pos];
         }

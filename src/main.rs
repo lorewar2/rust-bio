@@ -1,4 +1,4 @@
-use bio::alignment::{poa::*, TextSlice, pairwise::Scoring};
+use bio::alignment::{bandedpoa::*, TextSlice, pairwise::Scoring};
 use std::{fs, fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -11,16 +11,16 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 4;
+const SEED: u64 = 1;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
 const HOMOPOLYMER: bool = false;
-const QUALITY_SCORE: bool = true;
+const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
-const PACBIOALLFILES: bool = true;
+const USEPACBIODATA: bool = false;
+const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 
 // file names input
@@ -179,6 +179,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     // get the normal graph
     let normal_graph = aligner.graph();
 
+    println!("score = {}", normal_score);
     if HOMOPOLYMER {
     ////////////////////////////
     //compressed poa alignment//
@@ -269,7 +270,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
             println!("INVALID COUNT: {} parallel err: {} mismatch err: {} quality err: {}", invalid_info.len(), parallel_count, mismatch_count, quality_count);
             debug_strings.push(format!("INVALID COUNT: {} parallel err: {} mismatch err: {} quality err: {}", invalid_info.len(), parallel_count, mismatch_count, quality_count));
             // write the zoomed in graphs for invalid and low quality entries.
-            if invalid_info.len() < 200 {
+            if invalid_info.len() < 500 {
                 let temp_quality_error = write_quality_scores_to_file(output_quality_file_name, &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &pacbio_quality_scores, &aligned_pacbio_bases);
                 let temp_graph_error = write_zoomed_quality_score_graphs (output_quality_graph_file_name, &invalid_info, &quality_scores, &base_count_vec, normal_graph, &pacbio_quality_scores);
                 debug_strings = [debug_strings, temp_quality_error, temp_graph_error].concat();
@@ -289,7 +290,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
                 }
             }
             println!("INVALID COUNT: {}", invalid_info.len());
-            if invalid_info.len() < 200 {
+            if invalid_info.len() < 100 {
                 let temp_quality_error = write_quality_scores_to_file(output_quality_file_name, &quality_scores, &normal_consensus, &normal_topology, &invalid_info, &base_count_vec, &vec![34, 34], &vec![65; quality_scores.len()]);
                 let temp_graph_error = write_zoomed_quality_score_graphs (output_quality_graph_file_name, &invalid_info, &quality_scores, &base_count_vec, normal_graph, &vec![34, 34]);
                 debug_strings = [debug_strings, temp_quality_error, temp_graph_error].concat();
