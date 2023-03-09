@@ -572,4 +572,14 @@ impl<F: MatchFunc> Poa<F> {
         }
         (output, topopos)
     }
+
+    pub fn change_edge_weight (&mut self, target_node_index: usize, neighbour_node_index: usize, value: i32) {
+        match self.graph.find_edge(NodeIndex::new(target_node_index), NodeIndex::new(neighbour_node_index)){
+            Some(edge) => {
+                *self.graph.edge_weight_mut(edge).unwrap() = value as i32;
+            },
+            None => {},
+        }
+    }
+
 }

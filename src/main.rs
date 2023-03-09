@@ -92,67 +92,6 @@ fn main() {
     }
 }
 
-fn create_required_result_files (path: &str) -> (String, String, String, String, String, String, String) {
-    let output_debug_file_name: String = [path, "/debug.txt"].concat();
-    let output_consensus_file_name: String = [path, "/consensus.fa"].concat();
-    let output_scores_file_name: String = [path, "/results.txt"].concat();
-    let output_normal_graph_file_name: String = [path, "/normal_graph.fa"].concat();
-    let output_homopolymer_graph_file_name: String = [path, "/homopolymer_graph.fa"].concat();
-    let output_quality_graph_file_name: String = [path, "/quality_graphs.fa"].concat();
-    let output_quality_file_name: String = [path, "/quality_scores.fa"].concat();
-    File::create([path, "/consensus.fa"].concat()).ok();
-    File::create([path, "/filtered_data.fa"].concat()).ok();
-    File::create([path, "/results.txt"].concat()).ok();
-    File::create([path, "/normal_graph.fa"].concat()).ok();
-    File::create([path, "/homopolymer_graph.fa"].concat()).ok();
-    File::create([path, "/quality_scores.fa"].concat()).ok();
-    File::create([path, "/quality_graphs.fa"].concat()).ok();
-    File::create([path, "/debug.txt"].concat()).ok();
-    (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name)
-}
-
-fn check_the_scores_and_change_alignment (seqvec: Vec<String>, pacbio_consensus: &String) -> Vec<String> {
-    let mut invert: bool = false;
-    let mut seqvec2: Vec<String> = vec![];
-    // check the scores for 3 sequences
-    let mut index = 0;
-    for seq in &seqvec{
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(pacbio_consensus.len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&pacbio_consensus.as_bytes(), &seq.as_bytes());
-        if alignment.score < 1000 {
-            invert = true;
-            break;
-        }
-        else if index > 3 {
-            break;
-        }
-        index += 1;
-    }
-    if invert {
-        println!("Scores are too low, inverting sequences.");
-        //reverse complement every line
-        for seq in &seqvec {
-            let mut tempseq: Vec<char> = vec![];
-            let iterator = seq.chars().rev().into_iter();
-            for char in iterator{
-                tempseq.push(match char {
-                    'A' => 'T',
-                    'C' => 'G',
-                    'G' => 'C',
-                    'T' => 'A',
-                    _ => ' ',
-                });
-            }
-            seqvec2.push(tempseq.iter().cloned().collect::<String>());
-        }
-    }
-    else {
-        seqvec2 = seqvec;
-    }
-    seqvec2
-}
-
 fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_file_name: String, 
     output_consensus_file_name: String, output_scores_file_name: String, output_normal_graph_file_name: String, 
     output_homopolymer_graph_file_name: String, output_quality_graph_file_name: String, output_quality_file_name: String, error_line_number: usize) {
@@ -229,6 +168,11 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
         }
     }
     /////////////////////////////
+    //alternate aligners       //
+    /////////////////////////////
+    heavy_bundle_modified_consensus(&seqvec);
+
+    /////////////////////////////
     //quality score calculation//
     /////////////////////////////
     if QUALITY_SCORE {
@@ -299,6 +243,204 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
             }
         }
     }
+}
+
+pub fn topology_cut_consensus () -> (Vec<u8>, Vec<usize>) {
+    let mut output: Vec<u8> = vec![];
+    let mut topopos: Vec<usize> = vec![];
+    
+    //get the poa graph
+
+    //get the topologically ordered vector
+
+    //for each node check the 
+
+
+    (output, topopos)
+}
+
+fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
+    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
+    let mut seqnum: u8 = 0;
+    let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
+    for seq in seqvec{
+        if seqnum != 0 {
+            aligner.global(seq.as_bytes()).add_to_graph();
+        }
+        seqnum += 1;
+        println!("Sequence {} processed", seqnum);
+    }
+    let consensus;
+    let topology;
+    (consensus, topology) = aligner.poa.consensus(); //just poa
+    let graph = aligner.graph();
+    // get scores of sequences compared to normal consensus 
+    let normal_score = get_consensus_score(&seqvec, &consensus);
+    println!("score = {}", normal_score);
+    let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
+    //run all the consensus through get indices
+    for i in 0..consensus.len() {
+        // skip the indices which are in the passed consensus
+        let skip_nodes: Vec<usize> = topology[0 .. i + 1].to_vec();
+        // new method using topology cut
+        let mut target_node_parent = None;
+        let mut target_node_child = None;
+        if i != 0{
+            target_node_parent = Some(topology[i - 1]);
+        }
+        if i != consensus.len() - 1 {
+            target_node_child = Some(topology[i + 1]);
+        }
+        let (parallel_nodes, parallel_num_incoming_seq, _) = get_parallel_nodes_with_topology_cut (skip_nodes, seqvec.len(),  topology[i], target_node_parent, target_node_child, graph);
+        println!("base: {} parallel nodes {:?} count {:?}", consensus[i] as char, parallel_nodes, parallel_num_incoming_seq);
+        // check the parallel nodes bases
+        // number of As number of Cs number of Gs number of Ts
+        let mut acgt_count = [0, 0, 0, 0];
+        let mut acgt_nodes = [vec![], vec![], vec![], vec![]];
+        let mut target_base_index = 0;
+        for index in 0..parallel_nodes.len() {
+            match graph.raw_nodes()[parallel_nodes[index]].weight {
+                65 => {
+                    acgt_count[0] += parallel_num_incoming_seq[index];
+                    acgt_nodes[0].push(parallel_nodes[index]);
+                    if consensus[i] == 65 {
+                        target_base_index = 0;
+                    }
+                },
+                68 => {
+                    acgt_count[1] += parallel_num_incoming_seq[index];
+                    acgt_nodes[1].push(parallel_nodes[index]);
+                    if consensus[i] == 68 {
+                        target_base_index = 1;
+                    }
+                },
+                71 => {
+                    acgt_count[2] += parallel_num_incoming_seq[index];
+                    acgt_nodes[2].push(parallel_nodes[index]);
+                    if consensus[i] == 71 {
+                        target_base_index = 2;
+                    }
+                },
+                84 => {
+                    acgt_count[3] += parallel_num_incoming_seq[index];
+                    acgt_nodes[3].push(parallel_nodes[index]);
+                    if consensus[i] == 84 {
+                        target_base_index = 3;
+                    }
+                },
+                _ => {}
+            }
+        }
+        // determine if change is required and to what nodes and to what number and save them
+        if acgt_count[target_base_index] < acgt_count[0] {
+            for node in &acgt_nodes[0] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[0]));
+            }
+        }
+        else if acgt_count[target_base_index] < acgt_count[1] {
+            for node in &acgt_nodes[1] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[1]));
+            }
+        }
+        else if acgt_count[target_base_index] < acgt_count[2] {
+            for node in &acgt_nodes[2] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[2]));
+            }
+        }
+        else if acgt_count[target_base_index] < acgt_count[3] {
+            for node in &acgt_nodes[3] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[3]));
+            }
+        }
+    }
+    // change the graph
+    let mut node_neighbour_values = vec![];
+    for (node, value) in nodes_to_change_and_by_what {
+        // find the outgoing edges
+        let mut neighbours = graph.neighbors_directed(NodeIndex::new(node), Outgoing);
+        
+        let mut max_weight = 0;
+        // find the max weight of the outgoing edges
+        while let Some(neighbour) = neighbours.next() {
+            match graph.find_edge(NodeIndex::new(node), neighbour) {
+                Some(edge) => {
+                    if max_weight <= *graph.edge_weight(edge).unwrap() {
+                        max_weight = *graph.edge_weight(edge).unwrap();
+                        node_neighbour_values.push((node, neighbour.index(), value));
+                    }
+                }
+                None => {},
+            }
+        }
+    }
+    // increase the weights
+    for node_neighbour_value in node_neighbour_values {
+        aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
+    }
+    // get the consensus again and return it
+    let (consensus, topology) = aligner.poa.consensus();
+    (consensus, topology)
+}
+
+fn create_required_result_files (path: &str) -> (String, String, String, String, String, String, String) {
+    let output_debug_file_name: String = [path, "/debug.txt"].concat();
+    let output_consensus_file_name: String = [path, "/consensus.fa"].concat();
+    let output_scores_file_name: String = [path, "/results.txt"].concat();
+    let output_normal_graph_file_name: String = [path, "/normal_graph.fa"].concat();
+    let output_homopolymer_graph_file_name: String = [path, "/homopolymer_graph.fa"].concat();
+    let output_quality_graph_file_name: String = [path, "/quality_graphs.fa"].concat();
+    let output_quality_file_name: String = [path, "/quality_scores.fa"].concat();
+    File::create([path, "/consensus.fa"].concat()).ok();
+    File::create([path, "/filtered_data.fa"].concat()).ok();
+    File::create([path, "/results.txt"].concat()).ok();
+    File::create([path, "/normal_graph.fa"].concat()).ok();
+    File::create([path, "/homopolymer_graph.fa"].concat()).ok();
+    File::create([path, "/quality_scores.fa"].concat()).ok();
+    File::create([path, "/quality_graphs.fa"].concat()).ok();
+    File::create([path, "/debug.txt"].concat()).ok();
+    (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name)
+}
+
+fn check_the_scores_and_change_alignment (seqvec: Vec<String>, pacbio_consensus: &String) -> Vec<String> {
+    let mut invert: bool = false;
+    let mut seqvec2: Vec<String> = vec![];
+    // check the scores for 3 sequences
+    let mut index = 0;
+    for seq in &seqvec{
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(pacbio_consensus.len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&pacbio_consensus.as_bytes(), &seq.as_bytes());
+        if alignment.score < 1000 {
+            invert = true;
+            break;
+        }
+        else if index > 3 {
+            break;
+        }
+        index += 1;
+    }
+    if invert {
+        println!("Scores are too low, inverting sequences.");
+        //reverse complement every line
+        for seq in &seqvec {
+            let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+            seqvec2.push(tempseq.iter().cloned().collect::<String>());
+        }
+    }
+    else {
+        seqvec2 = seqvec;
+    }
+    seqvec2
 }
 
 fn write_debug_data_to_file (filename: impl AsRef<Path>, debug_strings: Vec<String>) {
