@@ -245,17 +245,107 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     }
 }
 
-pub fn topology_cut_consensus () -> (Vec<u8>, Vec<usize>) {
+pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
     let mut output: Vec<u8> = vec![];
     let mut topopos: Vec<usize> = vec![];
+    let mut topologically_ordered_indices = vec![];
     
     //get the poa graph
-
+    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
+    let mut seqnum: u8 = 0;
+    let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
+    for seq in seqvec{
+        if seqnum != 0 {
+            aligner.global(seq.as_bytes()).add_to_graph();
+        }
+        seqnum += 1;
+        println!("Sequence {} processed", seqnum);
+    }
+    let graph = aligner.graph();
     //get the topologically ordered vector
+    let mut topologically_ordered = Topo::new(graph);
 
-    //for each node check the 
+    while let Some(node) = topologically_ordered.next(graph) {
+        topologically_ordered_indices.push(node.index());
+    }
+    //for each node check the parallel counts and save the parallel nodes
+    let mut node_neighbour_counts_parallel: Vec<(usize, usize, (usize, usize, usize, usize), (Vec<usize>, Vec<usize>, Vec<usize>, Vec<usize>))> = vec![];
+    for topologically_ordered_index in topologically_ordered_indices {
+        let mut acgt_count = (0, 0, 0, 0);
+        let mut acgt_nodes = (vec![], vec![], vec![], vec![]);
+        let (parallel_nodes, parallel_num_incoming_seq, _) = get_parallel_nodes_with_topology_cut(vec![], seqnum as usize, topologically_ordered_index, None, None, graph);
+        for index in 0..parallel_nodes.len() {
+            match graph.raw_nodes()[parallel_nodes[index]].weight {
+                65 => {
+                    acgt_count.0 += parallel_num_incoming_seq[index];
+                    acgt_nodes.0.push(parallel_nodes[index]);
+                },
+                68 => {
+                    acgt_count.1 += parallel_num_incoming_seq[index];
+                    acgt_nodes.1.push(parallel_nodes[index]);
+                },
+                71 => {
+                    acgt_count.2 += parallel_num_incoming_seq[index];
+                    acgt_nodes.2.push(parallel_nodes[index]);
+                },
+                84 => {
+                    acgt_count.3 += parallel_num_incoming_seq[index];
+                    acgt_nodes.3.push(parallel_nodes[index]);
+                },
+                _ => {}
+            }
+        }
+        node_neighbour_counts_parallel.push((topologically_ordered_index, 0, acgt_count, acgt_nodes));
+    }
+    //for every node in topological list, get the outgoing nodes, filter ones with the corrosponding base, if multiple select highest edge one
+    for mut entry in node_neighbour_counts_parallel.clone() {
+        // get all the outgoing neighbours
+        let mut neighbours = graph.neighbors_directed(NodeIndex::new(entry.0), Outgoing);
+        // find which one is the max of summed up ACGT counts
+        let mut acgt_count = [0, 0, 0, 0];
+        let mut acgt_nodes = [vec![], vec![], vec![], vec![]];
+        while let Some(neighbour) = neighbours.next() {
+            // find the location of the neightbour node in the array
+            let position_in_node_neighbour_counts_parallel_array = node_neighbour_counts_parallel.iter().position(|r| r.0 == neighbour.index()).unwrap();
+            // update count
+            acgt_count[0] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.0;
+            acgt_count[1] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.1;
+            acgt_count[2] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.2;
+            acgt_count[3] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.3;
+            acgt_nodes[0] = [acgt_nodes[0].clone(), node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.0.clone()].concat();
+            acgt_nodes[1] = [acgt_nodes[1].clone(), node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.1.clone()].concat();
+            acgt_nodes[2] = [acgt_nodes[2].clone(), node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.2.clone()].concat();
+            acgt_nodes[3] = [acgt_nodes[3].clone(), node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.3.clone()].concat();
+        }
+        let mut max_base = 0;
+        // find the max base (from ACGT)
+        if (acgt_count[0] >= acgt_count[0]) && (acgt_count[0] >= acgt_count[1]) && (acgt_count[0] >= acgt_count[2]) && (acgt_count[0] >= acgt_count[3]) {
+            max_base = 0;
+        }
+        else if (acgt_count[1] >= acgt_count[0]) && (acgt_count[1] >= acgt_count[1]) && (acgt_count[1] >= acgt_count[2]) && (acgt_count[1] >= acgt_count[3]) {
+            max_base = 1;
+        }
+        else if (acgt_count[2] >= acgt_count[0]) && (acgt_count[2] >= acgt_count[1]) && (acgt_count[2] >= acgt_count[2]) && (acgt_count[2] >= acgt_count[3]) {
+            max_base = 2;
+        }
+        else if (acgt_count[3] >= acgt_count[0]) && (acgt_count[3] >= acgt_count[1]) && (acgt_count[3] >= acgt_count[2]) && (acgt_count[3] >= acgt_count[3]) {
+            max_base = 3;
+        }
+        // filter out the other nodes
+        let mut important_nodes = vec![];
+        match max_base {
+            0 => {important_nodes = acgt_nodes[0].clone()},
+            1 => {important_nodes = acgt_nodes[1].clone()},
+            2 => {important_nodes = acgt_nodes[2].clone()},
+            3 => {important_nodes = acgt_nodes[3].clone()},
+            _ => {},
+        }
+        // among the filtered nodes select highest weighted edge
+        let mut highest_weight_index = (0, 0);
 
-
+        // save the passing node
+        (entry).1 = 2;
+    }
     (output, topopos)
 }
 
