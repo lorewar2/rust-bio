@@ -1,4 +1,4 @@
-use bio::alignment::{bandedpoa::*, TextSlice, pairwise::Scoring};
+use bio::alignment::{poa::*, TextSlice, pairwise::Scoring};
 use std::{fs, fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -11,7 +11,7 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 1;
+const SEED: u64 = 7;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -19,15 +19,17 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = false;
+const USEPACBIODATA: bool = true;
 const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
+const PRINT_ALL: bool = false;
 
 // file names input
 const INPUT_FILE_NAME: &str = "11928566";
 const INPUT_READ_FOLDER_PATH: &str = "./data/PacBioReads/";
 const INPUT_CONSENSUS_FOLDER_PATH: &str = "./data/PacBioConsensus/";
 const INPUT_PACBIO_ERROR_FOLDER_PATH: &str = "./data/PacBioError/";
+
 
 // file names output
 const OUTPUT_RESULT_PATH: &str = "./results/";
@@ -86,7 +88,7 @@ fn main() {
             fs::create_dir([OUTPUT_RESULT_PATH, "random"].concat()).ok();
             //create corrosponding result files
             let (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name) = create_required_result_files(&[OUTPUT_RESULT_PATH, "random"].concat());
-            seqvec = get_random_sequences_from_generator(2000, 10);
+            seqvec = get_random_sequences_from_generator(100, 10);
             run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name, ERROR_LINE_NUMBER);
         }
     }
@@ -170,8 +172,33 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
-    heavy_bundle_modified_consensus(&seqvec);
-
+    /* 
+    let (topology_consensus, _) = topology_cut_consensus(&seqvec);
+    let topology_score = get_consensus_score(&seqvec, &topology_consensus);
+    let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
+    let mod_heavy_score = get_consensus_score(&seqvec, &mod_heavy_consensus);
+    println!("normal score: {}", normal_score);
+    println!("topo score: {}", topology_score);
+    println!("mod heavy score: {}", mod_heavy_score);
+    
+    for base in &normal_consensus {
+        print!("{}", *base as char);
+    }
+    println!("");
+    for base in &topology_consensus {
+        print!("{}", *base as char);
+    }
+    println!("");*/
+    // score of calcualted 
+    println!("normal score:\t{}", normal_score);
+    // score of pacbio
+    let pacbio_score = get_consensus_score(&seqvec, &seqvec[0].as_bytes().to_vec());
+    println!("pacbio score:\t{}", pacbio_score);
+    // score of pacbio error corrected
+    let mut modified_pacbio = seqvec[0].as_bytes().to_vec();
+    modified_pacbio[15157] = 65;
+    let modified_pacbio_score = get_consensus_score(&seqvec, &modified_pacbio);
+    println!("modified pacbio score:\t{}", modified_pacbio_score);
     /////////////////////////////
     //quality score calculation//
     /////////////////////////////
@@ -295,10 +322,10 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
                 _ => {}
             }
         }
-        node_neighbour_counts_parallel.push((topologically_ordered_index, 0, acgt_count, acgt_nodes));
+        node_neighbour_counts_parallel.push((topologically_ordered_index, 12345678, acgt_count, acgt_nodes));
     }
     //for every node in topological list, get the outgoing nodes, filter ones with the corrosponding base, if multiple select highest edge one
-    for mut entry in node_neighbour_counts_parallel.clone() {
+    for entry in node_neighbour_counts_parallel.clone() {
         // get all the outgoing neighbours
         let mut neighbours = graph.neighbors_directed(NodeIndex::new(entry.0), Outgoing);
         // find which one is the max of summed up ACGT counts
@@ -319,16 +346,16 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
         }
         let mut max_base = 0;
         // find the max base (from ACGT)
-        if (acgt_count[0] >= acgt_count[0]) && (acgt_count[0] >= acgt_count[1]) && (acgt_count[0] >= acgt_count[2]) && (acgt_count[0] >= acgt_count[3]) {
+        if acgt_count[0] >= cmp::max(cmp::max(acgt_count[1], acgt_count[2]), acgt_count[3]) {
             max_base = 0;
         }
-        else if (acgt_count[1] >= acgt_count[0]) && (acgt_count[1] >= acgt_count[1]) && (acgt_count[1] >= acgt_count[2]) && (acgt_count[1] >= acgt_count[3]) {
+        else if acgt_count[1] >= cmp::max(cmp::max(acgt_count[0], acgt_count[2]), acgt_count[3]) {
             max_base = 1;
         }
-        else if (acgt_count[2] >= acgt_count[0]) && (acgt_count[2] >= acgt_count[1]) && (acgt_count[2] >= acgt_count[2]) && (acgt_count[2] >= acgt_count[3]) {
+        else if acgt_count[2] >= cmp::max(cmp::max(acgt_count[1], acgt_count[0]), acgt_count[3]) {
             max_base = 2;
         }
-        else if (acgt_count[3] >= acgt_count[0]) && (acgt_count[3] >= acgt_count[1]) && (acgt_count[3] >= acgt_count[2]) && (acgt_count[3] >= acgt_count[3]) {
+        else if acgt_count[3] >= cmp::max(cmp::max(acgt_count[1], acgt_count[2]), acgt_count[0]) {
             max_base = 3;
         }
         // filter out the other nodes
@@ -341,10 +368,56 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
             _ => {},
         }
         // among the filtered nodes select highest weighted edge
-        let mut highest_weight_index = (0, 0);
-
+        let mut highest_weight_index = (0, 12345678);
+        for important_node in important_nodes {
+            // get the weight from node to important node
+            match graph.find_edge(NodeIndex::new(entry.0), NodeIndex::new(important_node)) {
+                Some(edge) => {
+                    if highest_weight_index.0 < *graph.edge_weight(edge).unwrap() {
+                        highest_weight_index.0 = *graph.edge_weight(edge).unwrap();
+                        highest_weight_index.1 = important_node;
+                    }
+                }
+                None => {},
+            }
+        }
         // save the passing node
-        (entry).1 = 2;
+        let position = node_neighbour_counts_parallel.iter().position(|r| r.0 == entry.0).unwrap();
+        node_neighbour_counts_parallel[position].1 = highest_weight_index.1;
+    }
+    for entry in &node_neighbour_counts_parallel {
+        //println!("{} -> {}", entry.0, entry.1);
+    } 
+    //start with topologically sorted top node
+    let mut current_node = node_neighbour_counts_parallel[0].clone();
+    loop {
+        output.push(graph.raw_nodes()[current_node.0].weight);
+        topopos.push(current_node.0);
+        if current_node.1 != 12345678 {
+            // iterate to the next node
+            let position = node_neighbour_counts_parallel.iter().position(|r| r.0 == current_node.1).unwrap();
+            current_node = node_neighbour_counts_parallel[position].clone();
+        }
+        else {
+            //find a node to traverse, if none available break
+            let mut highest_weight_index = (0, 12345678);
+            let mut neighbours = graph.neighbors_directed(NodeIndex::new(current_node.0), Outgoing);
+            while let Some(neighbour) = neighbours.next() {
+                match graph.find_edge(NodeIndex::new(current_node.0), neighbour) {
+                    Some(edge) => {
+                        if highest_weight_index.0 < *graph.edge_weight(edge).unwrap() {
+                            highest_weight_index.0 = *graph.edge_weight(edge).unwrap();
+                            highest_weight_index.1 = neighbour.index();
+                        }
+                    }
+                    None => {},
+                }
+            }
+            match node_neighbour_counts_parallel.iter().position(|r| r.0 == highest_weight_index.1) {
+                Some(x) => {current_node = node_neighbour_counts_parallel[x].clone();},
+                None => {break;}
+            };
+        }
     }
     (output, topopos)
 }
@@ -364,9 +437,6 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     let topology;
     (consensus, topology) = aligner.poa.consensus(); //just poa
     let graph = aligner.graph();
-    // get scores of sequences compared to normal consensus 
-    let normal_score = get_consensus_score(&seqvec, &consensus);
-    println!("score = {}", normal_score);
     let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
     //run all the consensus through get indices
     for i in 0..consensus.len() {
@@ -382,7 +452,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
             target_node_child = Some(topology[i + 1]);
         }
         let (parallel_nodes, parallel_num_incoming_seq, _) = get_parallel_nodes_with_topology_cut (skip_nodes, seqvec.len(),  topology[i], target_node_parent, target_node_child, graph);
-        println!("base: {} parallel nodes {:?} count {:?}", consensus[i] as char, parallel_nodes, parallel_num_incoming_seq);
+        // println!("base: {} parallel nodes {:?} count {:?}", consensus[i] as char, parallel_nodes, parallel_num_incoming_seq);
         // check the parallel nodes bases
         // number of As number of Cs number of Gs number of Ts
         let mut acgt_count = [0, 0, 0, 0];
@@ -465,7 +535,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     }
     // increase the weights
     for node_neighbour_value in node_neighbour_values {
-        aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
+        //aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
     }
     // get the consensus again and return it
     let (consensus, topology) = aligner.poa.consensus();
@@ -664,12 +734,16 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
         Some(x) => {
             if x == Incoming {
                 temp_string = format!("Going backwards");
-                println!("{}", temp_string);
+                if PRINT_ALL {
+                    println!("{}", temp_string);
+                }
                 debug_strings.push(temp_string.clone());
             }
             else {
                 temp_string = format!("Going forward");
-                println!("{}", temp_string);
+                if PRINT_ALL {
+                    println!("{}", temp_string);
+                }
                 debug_strings.push(temp_string.clone());
             }
         }
@@ -720,7 +794,9 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
         }
     }
     temp_string = format!("Iteration: {} BackNodes: {:?} CheckNodes: {:?}", bubble_size, back_nodes_list, edge_nodes_list);
-    println!("{}", temp_string);
+    if PRINT_ALL {
+        println!("{}", temp_string);
+    }
     debug_strings.push(temp_string.clone());
     
     // get the two slices of topologically_ordered_list back front
@@ -728,22 +804,30 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
     // for debugging
     if slice[0].len() > 10 {
         temp_string = format!("Back slice {:?}", slice[0][(slice[0].len() - 10)..slice[0].len()].to_vec());
-        println!("{}", temp_string);
+        if PRINT_ALL {
+            println!("{}", temp_string);
+        }
         debug_strings.push(temp_string.clone());
     }
     else {
         temp_string = format!("Back slice {:?}", slice[0][0..slice[0].len()].to_vec());
-        println!("{}", temp_string);
+        if PRINT_ALL {
+            println!("{}", temp_string);
+        }
         debug_strings.push(temp_string.clone());
     }
     if slice[1].len() > 10 {
         temp_string = format!("Front slice {:?}", slice[1][0..10].to_vec());
-        println!("{}", temp_string);
+        if PRINT_ALL {
+            println!("{}", temp_string);
+        }
         debug_strings.push(temp_string.clone());
     }
     else {
         temp_string = format!("Front slice {:?}", slice[1][0..slice[1].len()].to_vec());
-        println!("{}", temp_string);
+        if PRINT_ALL {
+            println!("{}", temp_string);
+        }
         debug_strings.push(temp_string.clone());
     }
 
@@ -790,7 +874,9 @@ fn move_in_direction_and_find_crossing_nodes (skip_nodes: &Vec<usize>, total_seq
                 parallel_nodes.push(*edge_node);
                 parallel_node_parents.push(*edge_node_parent);
                 temp_string = format!("success node {} parent/child {}\n", *edge_node, *edge_node_parent);
-                println!("{}", temp_string);
+                if PRINT_ALL {
+                    println!("{}", temp_string);
+                }
                 debug_strings.push(temp_string.clone());
                 // get the edge weight and add to seq_found_so_far
                 let mut incoming_weight = 0;
