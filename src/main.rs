@@ -117,11 +117,10 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     (normal_consensus, normal_topology) = aligner.poa.consensus(); //just poa
 
     // get scores of sequences compared to normal consensus 
-    //let normal_score = get_consensus_score(&seqvec, &normal_consensus);
+    let normal_score = get_consensus_score(&seqvec, &normal_consensus);
     // get the normal graph
     let normal_graph = aligner.graph();
-    //println!("score = {}", normal_score);
-    let normal_score = 55;
+    
     if HOMOPOLYMER {
     ////////////////////////////
     //compressed poa alignment//
@@ -179,7 +178,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     //let topology_score = get_consensus_score(&seqvec, &topology_consensus);
     let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
     let mod_heavy_score = get_consensus_score(&seqvec, &mod_heavy_consensus);
-    //println!("normal score: {}", normal_score);
+    println!("normal score: {}", normal_score);
     //println!("topo score: {}", topology_score);
     println!("mod heavy score: {}", mod_heavy_score);
 
