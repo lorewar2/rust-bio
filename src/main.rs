@@ -172,13 +172,13 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
-    /* 
-    let (topology_consensus, _) = topology_cut_consensus(&seqvec);
-    let topology_score = get_consensus_score(&seqvec, &topology_consensus);
+    
+    //let (topology_consensus, _) = topology_cut_consensus(&seqvec);
+    //let topology_score = get_consensus_score(&seqvec, &topology_consensus);
     let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
     let mod_heavy_score = get_consensus_score(&seqvec, &mod_heavy_consensus);
     println!("normal score: {}", normal_score);
-    println!("topo score: {}", topology_score);
+    //println!("topo score: {}", topology_score);
     println!("mod heavy score: {}", mod_heavy_score);
     
     for base in &normal_consensus {
@@ -188,7 +188,8 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     for base in &topology_consensus {
         print!("{}", *base as char);
     }
-    println!("");*/
+    println!("");
+    /* 
     // score of calcualted 
     println!("normal score:\t{}", normal_score);
     // score of pacbio
@@ -199,6 +200,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     modified_pacbio[15157] = 65;
     let modified_pacbio_score = get_consensus_score(&seqvec, &modified_pacbio);
     println!("modified pacbio score:\t{}", modified_pacbio_score);
+    */
     /////////////////////////////
     //quality score calculation//
     /////////////////////////////
