@@ -111,9 +111,6 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
         }
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
-        if ALTERNATE_ALIGNER {
-            break;
-        }
     }
     let normal_consensus;
     let normal_topology;
@@ -520,7 +517,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
         }
     }
     // change the graph
-    println!("CHANGED STUFF {}", changed_stuff);
+    //println!("CHANGED STUFF {} {:?}", changed_stuff, nodes_to_change_and_by_what);
     let mut node_neighbour_values = vec![];
     for (node, value) in nodes_to_change_and_by_what {
         // find the outgoing edges
@@ -542,7 +539,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     }
     // increase the weights
     for node_neighbour_value in node_neighbour_values {
-        //aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
+        aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
     }
     // get the consensus again and return it
     let (consensus, topology) = aligner.poa.consensus();
