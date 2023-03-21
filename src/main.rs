@@ -20,9 +20,10 @@ const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
 const USEPACBIODATA: bool = true;
-const PACBIOALLFILES: bool = false;
+const PACBIOALLFILES: bool = true;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = false;
+const ALTERNATE_ALIGNER: bool = true;
 
 // file names input
 const INPUT_FILE_NAME: &str = "11928566";
@@ -100,7 +101,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     ////////////////////////
     //normal poa alignment//
     ////////////////////////
-    
+        
     let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
     let mut seqnum: u8 = 0;
     let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
@@ -110,6 +111,9 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
         }
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
+        if ALTERNATE_ALIGNER {
+            break;
+        }
     }
     let normal_consensus;
     let normal_topology;
@@ -119,8 +123,8 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     let normal_score = get_consensus_score(&seqvec, &normal_consensus);
     // get the normal graph
     let normal_graph = aligner.graph();
-
     println!("score = {}", normal_score);
+
     if HOMOPOLYMER {
     ////////////////////////////
     //compressed poa alignment//
@@ -169,6 +173,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
                 &count_rep, seqnum as usize, &saved_indices);
         }
     }
+
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
@@ -177,18 +182,10 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     //let topology_score = get_consensus_score(&seqvec, &topology_consensus);
     let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
     let mod_heavy_score = get_consensus_score(&seqvec, &mod_heavy_consensus);
-    println!("normal score: {}", normal_score);
+    //println!("normal score: {}", normal_score);
     //println!("topo score: {}", topology_score);
     println!("mod heavy score: {}", mod_heavy_score);
-    
-    for base in &normal_consensus {
-        print!("{}", *base as char);
-    }
-    println!("");
-    for base in &topology_consensus {
-        print!("{}", *base as char);
-    }
-    println!("");
+
     /* 
     // score of calcualted 
     println!("normal score:\t{}", normal_score);
@@ -425,6 +422,8 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
 }
 
 fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
+
+    //get the normal consensus and graph
     let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
     let mut seqnum: u8 = 0;
     let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
@@ -513,6 +512,9 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
             for node in &acgt_nodes[3] {
                 nodes_to_change_and_by_what.push((*node, acgt_count[3]));
             }
+        }
+        else {
+            println!("Nothing to change in this consensus!!!!!!!!!!!!!!!!");
         }
     }
     // change the graph
