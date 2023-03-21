@@ -120,11 +120,11 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     (normal_consensus, normal_topology) = aligner.poa.consensus(); //just poa
 
     // get scores of sequences compared to normal consensus 
-    let normal_score = get_consensus_score(&seqvec, &normal_consensus);
+    //let normal_score = get_consensus_score(&seqvec, &normal_consensus);
     // get the normal graph
     let normal_graph = aligner.graph();
-    println!("score = {}", normal_score);
-
+    //println!("score = {}", normal_score);
+    let normal_score = 55;
     if HOMOPOLYMER {
     ////////////////////////////
     //compressed poa alignment//
@@ -439,6 +439,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     (consensus, topology) = aligner.poa.consensus(); //just poa
     let graph = aligner.graph();
     let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
+    let mut changed_stuff = false;
     //run all the consensus through get indices
     for i in 0..consensus.len() {
         // skip the indices which are in the passed consensus
@@ -494,30 +495,32 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
         }
         // determine if change is required and to what nodes and to what number and save them
         if acgt_count[target_base_index] < acgt_count[0] {
+            changed_stuff = true;
             for node in &acgt_nodes[0] {
                 nodes_to_change_and_by_what.push((*node, acgt_count[0]));
             }
         }
         else if acgt_count[target_base_index] < acgt_count[1] {
+            changed_stuff = true;
             for node in &acgt_nodes[1] {
                 nodes_to_change_and_by_what.push((*node, acgt_count[1]));
             }
         }
         else if acgt_count[target_base_index] < acgt_count[2] {
+            changed_stuff = true;
             for node in &acgt_nodes[2] {
                 nodes_to_change_and_by_what.push((*node, acgt_count[2]));
             }
         }
         else if acgt_count[target_base_index] < acgt_count[3] {
+            changed_stuff = true;
             for node in &acgt_nodes[3] {
                 nodes_to_change_and_by_what.push((*node, acgt_count[3]));
             }
         }
-        else {
-            println!("Nothing to change in this consensus!!!!!!!!!!!!!!!!");
-        }
     }
     // change the graph
+    println!("CHANGED STUFF {}", changed_stuff);
     let mut node_neighbour_values = vec![];
     for (node, value) in nodes_to_change_and_by_what {
         // find the outgoing edges
