@@ -430,8 +430,8 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
     }
-    let consensus;
-    let topology;
+    let mut consensus;
+    let mut topology;
     (consensus, topology) = aligner.poa.consensus(); //just poa
     let graph = aligner.graph();
     let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
@@ -489,6 +489,20 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
                 _ => {}
             }
         }
+        if acgt_count[target_base_index] < acgt_count[0] {
+            consensus[i] = 65;
+        }
+        else if acgt_count[target_base_index] < acgt_count[1] {
+            consensus[i] = 67;
+        }
+        else if acgt_count[target_base_index] < acgt_count[2] {
+            consensus[i] = 71;
+        }
+        else if acgt_count[target_base_index] < acgt_count[3] {
+            consensus[i] = 84;
+        } 
+    }
+        /*
         // determine if change is required and to what nodes and to what number and save them
         if acgt_count[target_base_index] < acgt_count[0] {
             changed_stuff = true;
@@ -542,6 +556,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     }
     // get the consensus again and return it
     let (consensus, topology) = aligner.poa.consensus();
+    */
     (consensus, topology)
 }
 
