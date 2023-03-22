@@ -181,7 +181,14 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     println!("normal score: {}", normal_score);
     //println!("topo score: {}", topology_score);
     println!("mod heavy score: {}", mod_heavy_score);
-
+    for base in &mod_heavy_consensus {
+        //print!("{}", *base as char);
+    }
+    println!("");
+    for base in &normal_consensus {
+        //print!("{}", *base as char);
+    }
+    println!("");
     /* 
     // score of calcualted 
     println!("normal score:\t{}", normal_score);
@@ -267,6 +274,154 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     }
 }
 
+fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
+    //get the normal consensus and graph
+    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
+    let mut seqnum: u8 = 0;
+    let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
+    for seq in seqvec{
+        if seqnum != 0 {
+            aligner.global(seq.as_bytes()).add_to_graph();
+        }
+        seqnum += 1;
+        println!("Sequence {} processed", seqnum);
+    }
+    let mut consensus;
+    let mut topology;
+    (consensus, topology) = aligner.poa.consensus(); //just poa
+    let graph = aligner.graph();
+    let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
+    let mut changed_stuff = false;
+    //run all the consensus through get indices
+    for i in 0..consensus.len() {
+        // skip the indices which are in the passed consensus
+        let skip_nodes: Vec<usize> = topology[0 .. i + 1].to_vec();
+        // new method using topology cut
+        let mut target_node_parent = None;
+        let mut target_node_child = None;
+        if i != 0 {
+            target_node_parent = Some(topology[i - 1]);
+        }
+        if i != consensus.len() - 1 {
+            target_node_child = Some(topology[i + 1]);
+        }
+        let (parallel_nodes, parallel_num_incoming_seq, _) = get_parallel_nodes_with_topology_cut (skip_nodes, seqvec.len(),  topology[i], target_node_parent, target_node_child, graph);
+        //println!("base: {} parallel nodes {:?} count {:?}", consensus[i] as char, parallel_nodes, parallel_num_incoming_seq);
+        // check the parallel nodes bases
+        // number of As number of Cs number of Gs number of Ts
+        let mut acgt_count = [0, 0, 0, 0];
+        let mut acgt_nodes = [vec![], vec![], vec![], vec![]];
+        let mut target_base_index = 0;
+        match consensus[i] {
+            65 => {target_base_index = 0;},
+            67 => {target_base_index = 1;},
+            71 => {target_base_index = 2;},
+            84 => {target_base_index = 3;},
+            _ => {}
+        }
+        for index in 0..parallel_nodes.len() {
+            match graph.raw_nodes()[parallel_nodes[index]].weight {
+                65 => {
+                    acgt_count[0] += parallel_num_incoming_seq[index];
+                    acgt_nodes[0].push(parallel_nodes[index]);
+                },
+                67 => {
+                    acgt_count[1] += parallel_num_incoming_seq[index];
+                    acgt_nodes[1].push(parallel_nodes[index]);
+                },
+                71 => {
+                    acgt_count[2] += parallel_num_incoming_seq[index];
+                    acgt_nodes[2].push(parallel_nodes[index]);
+                },
+                84 => {
+                    acgt_count[3] += parallel_num_incoming_seq[index];
+                    acgt_nodes[3].push(parallel_nodes[index]);
+                },
+                _ => {}
+            }
+        }
+        if acgt_count[target_base_index] < acgt_count[0] {
+            consensus[i] = 65;
+            changed_stuff = true;
+        }
+        else if acgt_count[target_base_index] < acgt_count[1] {
+            consensus[i] = 67;
+            changed_stuff = true;
+        }
+        else if acgt_count[target_base_index] < acgt_count[2] {
+            consensus[i] = 71;
+            changed_stuff = true;
+        }
+        else if acgt_count[target_base_index] < acgt_count[3] {
+            consensus[i] = 84;
+            changed_stuff = true;
+        }
+    }
+    if changed_stuff {
+        println!("Changed stuff");
+    }
+    else {
+        println!("Didnot change stuff");
+    }
+        /*
+        // determine if change is required and to what nodes and to what number and save them
+        if acgt_count[target_base_index] < acgt_count[0] {
+            changed_stuff = true;
+            for node in &acgt_nodes[0] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[0]));
+            }
+        }
+        else if acgt_count[target_base_index] < acgt_count[1] {
+            changed_stuff = true;
+            for node in &acgt_nodes[1] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[1]));
+            }
+        }
+        else if acgt_count[target_base_index] < acgt_count[2] {
+            changed_stuff = true;
+            for node in &acgt_nodes[2] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[2]));
+            }
+        }
+        else if acgt_count[target_base_index] < acgt_count[3] {
+            changed_stuff = true;
+            for node in &acgt_nodes[3] {
+                nodes_to_change_and_by_what.push((*node, acgt_count[3]));
+            }
+        }
+    }
+    // change the graph
+    //println!("CHANGED STUFF {} {:?}", changed_stuff, nodes_to_change_and_by_what);
+    let mut node_neighbour_values = vec![];
+    for (node, value) in nodes_to_change_and_by_what {
+        // find the outgoing edges
+        let mut neighbours = graph.neighbors_directed(NodeIndex::new(node), Outgoing);
+        
+        let mut max_weight = 0;
+        // find the max weight of the outgoing edges
+        while let Some(neighbour) = neighbours.next() {
+            match graph.find_edge(NodeIndex::new(node), neighbour) {
+                Some(edge) => {
+                    if max_weight <= *graph.edge_weight(edge).unwrap() {
+                        max_weight = *graph.edge_weight(edge).unwrap();
+                        node_neighbour_values.push((node, neighbour.index(), value));
+                    }
+                }
+                None => {},
+            }
+        }
+    }
+    // increase the weights
+    for node_neighbour_value in node_neighbour_values {
+        aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
+    }
+    // get the consensus again and return it
+    let (consensus, topology) = aligner.poa.consensus();
+    */
+    (consensus, topology)
+}
+
+
 pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
     let mut output: Vec<u8> = vec![];
     let mut topopos: Vec<usize> = vec![];
@@ -302,7 +457,7 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
                     acgt_count.0 += parallel_num_incoming_seq[index];
                     acgt_nodes.0.push(parallel_nodes[index]);
                 },
-                68 => {
+                67 => {
                     acgt_count.1 += parallel_num_incoming_seq[index];
                     acgt_nodes.1.push(parallel_nodes[index]);
                 },
@@ -415,149 +570,6 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
         }
     }
     (output, topopos)
-}
-
-fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
-
-    //get the normal consensus and graph
-    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
-    let mut seqnum: u8 = 0;
-    let mut aligner = Aligner::new(scoring, seqvec[0].as_bytes());
-    for seq in seqvec{
-        if seqnum != 0 {
-            aligner.global(seq.as_bytes()).add_to_graph();
-        }
-        seqnum += 1;
-        println!("Sequence {} processed", seqnum);
-    }
-    let mut consensus;
-    let mut topology;
-    (consensus, topology) = aligner.poa.consensus(); //just poa
-    let graph = aligner.graph();
-    let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
-    let mut changed_stuff = false;
-    //run all the consensus through get indices
-    for i in 0..consensus.len() {
-        // skip the indices which are in the passed consensus
-        let skip_nodes: Vec<usize> = topology[0 .. i + 1].to_vec();
-        // new method using topology cut
-        let mut target_node_parent = None;
-        let mut target_node_child = None;
-        if i != 0{
-            target_node_parent = Some(topology[i - 1]);
-        }
-        if i != consensus.len() - 1 {
-            target_node_child = Some(topology[i + 1]);
-        }
-        let (parallel_nodes, parallel_num_incoming_seq, _) = get_parallel_nodes_with_topology_cut (skip_nodes, seqvec.len(),  topology[i], target_node_parent, target_node_child, graph);
-        // println!("base: {} parallel nodes {:?} count {:?}", consensus[i] as char, parallel_nodes, parallel_num_incoming_seq);
-        // check the parallel nodes bases
-        // number of As number of Cs number of Gs number of Ts
-        let mut acgt_count = [0, 0, 0, 0];
-        let mut acgt_nodes = [vec![], vec![], vec![], vec![]];
-        let mut target_base_index = 0;
-        for index in 0..parallel_nodes.len() {
-            match graph.raw_nodes()[parallel_nodes[index]].weight {
-                65 => {
-                    acgt_count[0] += parallel_num_incoming_seq[index];
-                    acgt_nodes[0].push(parallel_nodes[index]);
-                    if consensus[i] == 65 {
-                        target_base_index = 0;
-                    }
-                },
-                68 => {
-                    acgt_count[1] += parallel_num_incoming_seq[index];
-                    acgt_nodes[1].push(parallel_nodes[index]);
-                    if consensus[i] == 68 {
-                        target_base_index = 1;
-                    }
-                },
-                71 => {
-                    acgt_count[2] += parallel_num_incoming_seq[index];
-                    acgt_nodes[2].push(parallel_nodes[index]);
-                    if consensus[i] == 71 {
-                        target_base_index = 2;
-                    }
-                },
-                84 => {
-                    acgt_count[3] += parallel_num_incoming_seq[index];
-                    acgt_nodes[3].push(parallel_nodes[index]);
-                    if consensus[i] == 84 {
-                        target_base_index = 3;
-                    }
-                },
-                _ => {}
-            }
-        }
-        if acgt_count[target_base_index] < acgt_count[0] {
-            consensus[i] = 65;
-        }
-        else if acgt_count[target_base_index] < acgt_count[1] {
-            consensus[i] = 67;
-        }
-        else if acgt_count[target_base_index] < acgt_count[2] {
-            consensus[i] = 71;
-        }
-        else if acgt_count[target_base_index] < acgt_count[3] {
-            consensus[i] = 84;
-        } 
-    }
-        /*
-        // determine if change is required and to what nodes and to what number and save them
-        if acgt_count[target_base_index] < acgt_count[0] {
-            changed_stuff = true;
-            for node in &acgt_nodes[0] {
-                nodes_to_change_and_by_what.push((*node, acgt_count[0]));
-            }
-        }
-        else if acgt_count[target_base_index] < acgt_count[1] {
-            changed_stuff = true;
-            for node in &acgt_nodes[1] {
-                nodes_to_change_and_by_what.push((*node, acgt_count[1]));
-            }
-        }
-        else if acgt_count[target_base_index] < acgt_count[2] {
-            changed_stuff = true;
-            for node in &acgt_nodes[2] {
-                nodes_to_change_and_by_what.push((*node, acgt_count[2]));
-            }
-        }
-        else if acgt_count[target_base_index] < acgt_count[3] {
-            changed_stuff = true;
-            for node in &acgt_nodes[3] {
-                nodes_to_change_and_by_what.push((*node, acgt_count[3]));
-            }
-        }
-    }
-    // change the graph
-    //println!("CHANGED STUFF {} {:?}", changed_stuff, nodes_to_change_and_by_what);
-    let mut node_neighbour_values = vec![];
-    for (node, value) in nodes_to_change_and_by_what {
-        // find the outgoing edges
-        let mut neighbours = graph.neighbors_directed(NodeIndex::new(node), Outgoing);
-        
-        let mut max_weight = 0;
-        // find the max weight of the outgoing edges
-        while let Some(neighbour) = neighbours.next() {
-            match graph.find_edge(NodeIndex::new(node), neighbour) {
-                Some(edge) => {
-                    if max_weight <= *graph.edge_weight(edge).unwrap() {
-                        max_weight = *graph.edge_weight(edge).unwrap();
-                        node_neighbour_values.push((node, neighbour.index(), value));
-                    }
-                }
-                None => {},
-            }
-        }
-    }
-    // increase the weights
-    for node_neighbour_value in node_neighbour_values {
-        aligner.poa.change_edge_weight(node_neighbour_value.0, node_neighbour_value.1, node_neighbour_value.2 as i32);
-    }
-    // get the consensus again and return it
-    let (consensus, topology) = aligner.poa.consensus();
-    */
-    (consensus, topology)
 }
 
 fn create_required_result_files (path: &str) -> (String, String, String, String, String, String, String) {
