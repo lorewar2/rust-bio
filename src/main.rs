@@ -19,8 +19,8 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
-const PACBIOALLFILES: bool = true;
+const USEPACBIODATA: bool = false;
+const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = false;
 const ALTERNATE_ALIGNER: bool = true;
@@ -286,8 +286,8 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
         seqnum += 1;
         println!("Sequence {} processed", seqnum);
     }
-    let mut consensus;
-    let mut topology;
+    let consensus;
+    let topology;
     (consensus, topology) = aligner.poa.consensus(); //just poa
     let graph = aligner.graph();
     let mut nodes_to_change_and_by_what: Vec<(usize, usize)> = vec![];
@@ -340,7 +340,7 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
                 _ => {}
             }
         }
-        if acgt_count[target_base_index] < acgt_count[0] {
+        /*if acgt_count[target_base_index] < acgt_count[0] {
             consensus[i] = 65;
             changed_stuff = true;
         }
@@ -355,15 +355,8 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
         else if acgt_count[target_base_index] < acgt_count[3] {
             consensus[i] = 84;
             changed_stuff = true;
-        }
-    }
-    if changed_stuff {
-        println!("Changed stuff");
-    }
-    else {
-        println!("Didnot change stuff");
-    }
-        /*
+        }*/
+    
         // determine if change is required and to what nodes and to what number and save them
         if acgt_count[target_base_index] < acgt_count[0] {
             changed_stuff = true;
@@ -396,7 +389,6 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     for (node, value) in nodes_to_change_and_by_what {
         // find the outgoing edges
         let mut neighbours = graph.neighbors_directed(NodeIndex::new(node), Outgoing);
-        
         let mut max_weight = 0;
         // find the max weight of the outgoing edges
         while let Some(neighbour) = neighbours.next() {
@@ -417,7 +409,6 @@ fn heavy_bundle_modified_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize
     }
     // get the consensus again and return it
     let (consensus, topology) = aligner.poa.consensus();
-    */
     (consensus, topology)
 }
 
