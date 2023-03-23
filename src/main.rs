@@ -11,7 +11,7 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 8;
+const SEED: u64 = 10; //8 bad // 10 good
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -19,8 +19,8 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = false;
-const PACBIOALLFILES: bool = false;
+const USEPACBIODATA: bool = true;
+const PACBIOALLFILES: bool = true;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = false;
 const ALTERNATE_ALIGNER: bool = true;
@@ -176,17 +176,17 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     
     let (topology_consensus, _) = topology_cut_consensus(&seqvec);
     let topology_score = get_consensus_score(&seqvec, &topology_consensus);
-    let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
-    let mod_heavy_score = get_consensus_score(&seqvec, &mod_heavy_consensus);
+    //let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
+    //let mod_heavy_score = get_consensus_score(&seqvec, &mod_heavy_consensus);
     println!("normal score: {}", normal_score);
     println!("topo score: {}", topology_score);
-    println!("mod heavy score: {}", mod_heavy_score);
+    //println!("mod heavy score: {}", mod_heavy_score);
     for base in &topology_consensus {
-        print!("{}", *base as char);
+        //print!("{}", *base as char);
     }
     println!("");
     for base in &normal_consensus {
-        print!("{}", *base as char);
+        //print!("{}", *base as char);
     }
     println!("");
     /* 
@@ -352,12 +352,12 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
 
         // remove recurring 
         for index in 0..temp_parallel_nodes.len() {
-            if !parallel_nodes.contains(&temp_parallel_nodes[index]) {
+            //if !parallel_nodes.contains(&temp_parallel_nodes[index]) {
                 parallel_nodes.push(temp_parallel_nodes[index].clone());
                 parallel_num_incoming_seq.push(temp_parallel_num_incoming_seq[index].clone());
-            }
+            //}
         }
-        println!("parallel nodes: {:?}", parallel_nodes);
+        //println!("parallel nodes: {:?}", parallel_nodes);
         for index in 0..parallel_nodes.len() {
             match graph.raw_nodes()[parallel_nodes[index]].weight {
                 65 => {
@@ -393,28 +393,28 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
             let position_in_node_neighbour_counts_parallel_array = node_neighbour_counts_parallel.iter().position(|r| r.0 == neighbour.index()).unwrap();
             // update count
             for node_index in 0..node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.0.len() {
-                if !acgt_nodes[0].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.0[node_index]) {
+                //if !acgt_nodes[0].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.0[node_index]) {
                     acgt_nodes[0].push(node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.0[node_index]);
                     acgt_count[0] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.0[node_index];
-                }
+                //}
             }
             for node_index in 0..node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.1.len() {
-                if !acgt_nodes[1].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.1[node_index]) {
+                //if !acgt_nodes[1].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.1[node_index]) {
                     acgt_nodes[1].push(node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.1[node_index]);
                     acgt_count[1] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.1[node_index];
-                }
+                //}
             }
             for node_index in 0..node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.2.len() {
-                if !acgt_nodes[2].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.2[node_index]) {
+                //if !acgt_nodes[2].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.2[node_index]) {
                     acgt_nodes[2].push(node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.2[node_index]);
                     acgt_count[2] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.2[node_index];
-                }
+                //}
             }
             for node_index in 0..node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.3.len() {
-                if !acgt_nodes[3].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.3[node_index]) {
+                //if !acgt_nodes[3].contains(&node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.3[node_index]) {
                     acgt_nodes[3].push(node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].3.3[node_index]);
                     acgt_count[3] += node_neighbour_counts_parallel[position_in_node_neighbour_counts_parallel_array].2.3[node_index];
-                }   
+                //}   
             }
         }
         let mut max_base = 0;
@@ -485,13 +485,7 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
                 None => {},
             }
         }
-        //double checking 
-        println!("I am {}", entry.0);
-        println!("chose base (normal) {} weight {} node {}", chosen_base, max_weight, chosen_node);
-        println!("max base (topo) {} {}", max_base, max_node);
-        println!("count {:?}", acgt_count);
-        println!("nodes {:?}", acgt_nodes);
-        println!("");
+        
         if chosen_base != max_base {
             // check if the chosen_ node is a predecessor of max_node if so ignore
             let back_nodes = get_direction_nodes(Incoming, 3, vec![], max_node, graph);
@@ -499,7 +493,15 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
                 highest_weight_index.1 = chosen_node;
             }
         }
-
+        //double checking 
+        if PRINT_ALL {
+            println!("I am {}", entry.0);
+            println!("chose base (normal) {} weight {} node {}", chosen_base, max_weight, chosen_node);
+            println!("max base (topo) {} {}", max_base, max_node);
+            println!("count {:?}", acgt_count);
+            println!("nodes {:?}", acgt_nodes);
+            println!("");
+        }
         // save the passing node
         let position = node_neighbour_counts_parallel.iter().position(|r| r.0 == entry.0).unwrap();
         node_neighbour_counts_parallel[position].1 = highest_weight_index.1;
@@ -850,6 +852,11 @@ fn get_parallel_nodes_with_topology_cut (skip_nodes: Vec<usize>, total_seq: usiz
     let mut parallel_num_incoming_seq: Vec<usize> = vec![];
     let mut direction: Option<Direction> = None;
     let temp_string;
+    //print stuff
+    if PRINT_ALL {
+        println!("NODE CHECKING FOR PARALLEL: {}, base {}", target_node, graph.raw_nodes()[target_node].weight as char);
+    }
+
     // make a topologically ordered list
     while let Some(node) = topology.next(graph) {
         topologically_ordered_nodes.push(node.index());
