@@ -11,7 +11,7 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 10; //8 bad // 10 good
+const SEED: u64 = 18; //8 bad // 10 good
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -19,11 +19,13 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
-const PACBIOALLFILES: bool = true;
+const USEPACBIODATA: bool = false;
+const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
-const PRINT_ALL: bool = false;
+const PRINT_ALL: bool = true;
 const ALTERNATE_ALIGNER: bool = true;
+const RANDOM_SEQUENCE_LENGTH: usize = 20;
+const NUMBER_OF_RANDOM_SEQUENCES: usize = 10;
 
 // file names input
 const INPUT_FILE_NAME: &str = "11928566";
@@ -89,7 +91,7 @@ fn main() {
             fs::create_dir([OUTPUT_RESULT_PATH, "random"].concat()).ok();
             //create corrosponding result files
             let (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name) = create_required_result_files(&[OUTPUT_RESULT_PATH, "random"].concat());
-            seqvec = get_random_sequences_from_generator(20, 10);
+            seqvec = get_random_sequences_from_generator(RANDOM_SEQUENCE_LENGTH, NUMBER_OF_RANDOM_SEQUENCES);
             run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name, ERROR_LINE_NUMBER);
         }
     }
@@ -173,7 +175,8 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
-    
+    bfs_consensus(normal_graph);
+    /*
     let (topology_consensus, _) = topology_cut_consensus(&seqvec);
     let topology_score = get_consensus_score(&seqvec, &topology_consensus);
     //let (mod_heavy_consensus, _) = heavy_bundle_modified_consensus(&seqvec);
@@ -181,15 +184,16 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     println!("normal score: {}", normal_score);
     println!("topo score: {}", topology_score);
     //println!("mod heavy score: {}", mod_heavy_score);
-    for base in &topology_consensus {
-        //print!("{}", *base as char);
-    }
-    println!("");
     for base in &normal_consensus {
-        //print!("{}", *base as char);
+        print!("{}", *base as char);
     }
     println!("");
-    /* 
+
+    for base in &topology_consensus {
+        print!("{}", *base as char);
+    }
+    println!("");
+     
     // score of calcualted 
     println!("normal score:\t{}", normal_score);
     // score of pacbio
@@ -274,6 +278,123 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     }
 }
 
+pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>) {
+    let mut bfs_vector:Vec<(usize, usize, bool)> = vec![]; //(node_number, depth, visited)
+    // get the initial node from topology sort
+    let mut topologically_ordered = Topo::new(graph);
+    let head_node_index = topologically_ordered.next(graph).unwrap().index();
+    // process it
+    let head_node_content = (head_node_index, 0, true);
+    // make the vector
+    bfs_vector.push(head_node_content);
+    //println!("{}", format!("{:?}", Dot::new(&graph.map(|_, n| (*n) as char, |_, e| *e))));
+    // run bfs on the inital node
+    bfs_vector = bfs(graph, head_node_index, 0, bfs_vector);
+
+    // print the vector
+    println!("{:?}", bfs_vector);
+}
+
+pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, node_index: usize, node_depth: usize, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
+    //println!("{}", node_index);
+    // get the children of the node
+    let children = get_direction_nodes(Outgoing, 1, vec![], node_index, graph);
+    let mut avoid_children = vec![];
+    // process all childeren first
+    for child in &children {
+        match bfs_vector.iter().position(|r| r.0 == *child) {
+            Some(x) => {
+                avoid_children.push(*child);
+                // this node is already visited
+                // increase depth of all the nodes in this depth except the parent of this node
+                bfs_vector = bfs_depth_increase(graph, node_index, bfs_vector, *child, node_depth + 1);
+            },
+            None => {
+                bfs_vector.push((*child, node_depth + 1, true));
+            }
+        }
+    }
+    // run bfs on children
+    for child in &children {
+        if !avoid_children.contains(child) {
+            //get parents depth before doing this as it could have been changed
+            let parent_bfs_index = bfs_vector.iter().position(|r| r.0 == node_index).unwrap();
+            let parent_bfs_depth = bfs_vector[parent_bfs_index].1;
+            bfs_vector = bfs(graph, *child, parent_bfs_depth + 1, bfs_vector);
+        }
+    }
+    bfs_vector
+}
+
+pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: usize, mut bfs_vector: Vec<(usize, usize, bool)>, node_to_increase: usize, depth_to_increase: usize) -> Vec<(usize, usize, bool)> {
+    // find the current depth of node_to_increase
+    let node_to_increase_index = bfs_vector.iter().position(|r| r.0 == node_to_increase).unwrap();
+    let node_to_increase_depth = bfs_vector[node_to_increase_index].1;
+
+    // find all the nodes with that depth
+    let nodes_to_increase_indices = bfs_vector
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(_, &r)| if r.1 == node_to_increase_depth { Some(r.0) } else { None })
+                    .collect::<Vec<_>>();
+
+    // find the node which is ancestor of node_index who has the node_to_increase_depth
+    let mut search_radius = 1;
+    let mut ancestor_index = 0;
+    let mut ancestors = vec![];
+    loop {
+        ancestors = get_xiterations_direction_nodes(Incoming, search_radius, vec![], node_index, graph);
+        match bfs_vector.iter().position(|r| (ancestors.contains(&r.0) && r.1 == node_to_increase_depth)) {
+            Some(x) => {
+                ancestor_index = x;
+                break;
+            },
+            None => {
+                search_radius += 1;
+            }
+        }
+        if search_radius > 10 {
+            break;
+        }
+    }
+    // update the depth of all nodes in that depth and their children except the ancestor nodes
+    for iter_index in nodes_to_increase_indices {
+        if iter_index != ancestor_index {
+            // increase the depth of the index
+            // find the position of the index in bfs thing
+            let iter_index_pos = bfs_vector.iter().position(|r| (r.0 == iter_index)).unwrap();
+            bfs_vector[iter_index_pos].1 = depth_to_increase;
+
+            let mut search_radius = 1;
+            let mut none_in_this_iteration;
+            loop {
+                none_in_this_iteration = true;
+                let decendants = get_xiterations_direction_nodes(Outgoing, search_radius, vec![], iter_index, graph);
+                // find the decendants in the bfs vector and modify them
+                for decendant in decendants {
+                    match bfs_vector.iter().position(|r| (r.0 == decendant)) {
+                        Some(x) => {
+                            none_in_this_iteration = false;
+                            bfs_vector[x].1 = depth_to_increase + search_radius;
+                        },
+                        None => {
+
+                        }
+                    }
+                }
+                //if none in this iter break
+                if none_in_this_iteration {
+                    break;
+                }
+                search_radius += 1;
+            }
+        }
+    }
+    
+
+    bfs_vector
+}
+
 pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
     let mut output: Vec<u8> = vec![];
     let mut topopos: Vec<usize> = vec![];
@@ -352,10 +473,10 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
 
         // remove recurring 
         for index in 0..temp_parallel_nodes.len() {
-            //if !parallel_nodes.contains(&temp_parallel_nodes[index]) {
+            if !parallel_nodes.contains(&temp_parallel_nodes[index]) {
                 parallel_nodes.push(temp_parallel_nodes[index].clone());
                 parallel_num_incoming_seq.push(temp_parallel_num_incoming_seq[index].clone());
-            //}
+            }
         }
         //println!("parallel nodes: {:?}", parallel_nodes);
         for index in 0..parallel_nodes.len() {
@@ -1307,7 +1428,7 @@ fn get_zoomed_graph_section (normal_graph: &Graph<u8, i32, Directed, usize>, foc
     graph_section
 }
 
-fn get_random_sequences_from_generator(sequence_length: i32, num_of_sequences: i32) -> Vec<String> {
+fn get_random_sequences_from_generator(sequence_length: usize, num_of_sequences: usize) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(SEED);
     //vector to save all the sequences 
     let mut randomvec: Vec<String> = vec![];
