@@ -6,6 +6,7 @@ use petgraph::{Directed, Graph, Incoming, Outgoing, Direction, dot::Dot, graph::
 use statrs::function::factorial::binomial;
 use logaddexp::LogAddExp;
 use libm::exp;
+use queues::*;
 
 const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
@@ -24,7 +25,7 @@ const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = true;
 const ALTERNATE_ALIGNER: bool = true;
-const RANDOM_SEQUENCE_LENGTH: usize = 20;
+const RANDOM_SEQUENCE_LENGTH: usize = 2000;
 const NUMBER_OF_RANDOM_SEQUENCES: usize = 10;
 
 // file names input
@@ -291,29 +292,76 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>) {
     // run bfs on the inital node
     bfs_vector = bfs(graph, head_node_index, 0, bfs_vector);
 
+    // sort the bfs vector by depth
+    bfs_vector.sort_by_key(|r| r.1);
+
     // print the vector
-    println!("{:?}", bfs_vector);
+    let mut current_depth = 100;
+    for entry in bfs_vector {
+        if current_depth != entry.1 {
+            println!("");
+            print!("depth: {}", entry.1);
+        }
+        print!(" {}[{}] ", graph.raw_nodes()[entry.0].weight as char, entry.0);
+        current_depth = entry.1;
+    }
+    println!("");
+    //println!("{:?}", bfs_vector);
 }
 
-pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, node_index: usize, node_depth: usize, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
-    //println!("{}", node_index);
-    // get the children of the node
-    let children = get_direction_nodes(Outgoing, 1, vec![], node_index, graph);
-    let mut avoid_children = vec![];
-    // process all childeren first
-    for child in &children {
-        match bfs_vector.iter().position(|r| r.0 == *child) {
-            Some(x) => {
-                avoid_children.push(*child);
-                // this node is already visited
-                // increase depth of all the nodes in this depth except the parent of this node
-                bfs_vector = bfs_depth_increase(graph, node_index, bfs_vector, *child, node_depth + 1);
-            },
-            None => {
-                bfs_vector.push((*child, node_depth + 1, true));
+pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_depth: usize, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
+    // queue for saving stuff
+    let mut test_index = 0;
+    let mut bfs_queue: Queue<(usize, usize)> = queue![]; //node id is saved in the queue
+    bfs_queue.add((head_index, head_depth)).unwrap();
+    'test: while bfs_queue.size() > 0 {
+        let (node_index, node_depth) = bfs_queue.remove().unwrap();
+        println!("bfs on {}", node_index);
+        // sort the bfs vector by depth
+
+        // print the vector
+        let mut current_depth = 100;
+        /*for entry in &bfs_vector {
+            if current_depth != entry.1 {
+                println!("");
+                print!("depth: {}", entry.1);
             }
+            print!(" {}[{}] ", graph.raw_nodes()[entry.0].weight as char, entry.0);
+            current_depth = entry.1;
+        }
+        println!("");*/
+
+         // get the children of the node
+        let children = get_direction_nodes(Outgoing, 1, vec![], node_index, graph);
+        println!("bfs children {:?}", children);
+        // process all childeren first
+        for child in &children {
+            match bfs_vector.iter().position(|r| r.0 == *child) {
+                Some(x) => {
+                    // this node is already visited
+                    // increase depth of all the nodes in this depth except the parent of this node
+                    if bfs_vector[x].1 < node_depth + 1 {
+                        println!("increase node{}", bfs_vector[x].0 );
+                        let parent_bfs_index = bfs_vector.iter().position(|r| r.0 == node_index).unwrap();
+                        let parent_bfs_depth = bfs_vector[parent_bfs_index].1;
+                        bfs_vector = bfs_depth_increase(graph, node_index, bfs_vector, *child, parent_bfs_depth + 1);
+                        //if test_index > 100 {
+                        //    break 'test;
+                        //}
+                        test_index += 1;
+                    }
+                },
+                None => {
+                    let parent_bfs_index = bfs_vector.iter().position(|r| r.0 == node_index).unwrap();
+                    let parent_bfs_depth = bfs_vector[parent_bfs_index].1;
+                    bfs_queue.add((*child, parent_bfs_depth + 1)).unwrap();
+                    bfs_vector.push((*child, parent_bfs_depth + 1, true));
+                }
+            }
+            
         }
     }
+    /* 
     // run bfs on children
     for child in &children {
         if !avoid_children.contains(child) {
@@ -323,30 +371,34 @@ pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, node_index: usize, node_dep
             bfs_vector = bfs(graph, *child, parent_bfs_depth + 1, bfs_vector);
         }
     }
+    */
     bfs_vector
 }
 
 pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: usize, mut bfs_vector: Vec<(usize, usize, bool)>, node_to_increase: usize, depth_to_increase: usize) -> Vec<(usize, usize, bool)> {
     // find the current depth of node_to_increase
+    println!("I am node {:?}", node_index);
+    println!("original node to increase {}", node_to_increase);
     let node_to_increase_index = bfs_vector.iter().position(|r| r.0 == node_to_increase).unwrap();
     let node_to_increase_depth = bfs_vector[node_to_increase_index].1;
-
+    
     // find all the nodes with that depth
     let nodes_to_increase_indices = bfs_vector
                     .iter()
                     .enumerate()
                     .filter_map(|(_, &r)| if r.1 == node_to_increase_depth { Some(r.0) } else { None })
                     .collect::<Vec<_>>();
-
+    
+    println!("nodes to increase {:?}", nodes_to_increase_indices);
     // find the node which is ancestor of node_index who has the node_to_increase_depth
     let mut search_radius = 1;
     let mut ancestor_index = 0;
-    let mut ancestors = vec![];
+    let mut ancestors = vec![node_index];
     loop {
-        ancestors = get_xiterations_direction_nodes(Incoming, search_radius, vec![], node_index, graph);
+        println!("ancestor searching {:?}", ancestors);
         match bfs_vector.iter().position(|r| (ancestors.contains(&r.0) && r.1 == node_to_increase_depth)) {
             Some(x) => {
-                ancestor_index = x;
+                ancestor_index = bfs_vector[x].0;
                 break;
             },
             None => {
@@ -356,13 +408,16 @@ pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: 
         if search_radius > 10 {
             break;
         }
+        ancestors = get_xiterations_direction_nodes(Incoming, search_radius, vec![], node_index, graph);
     }
+    println!("ancestor node {}", ancestor_index);
     // update the depth of all nodes in that depth and their children except the ancestor nodes
     for iter_index in nodes_to_increase_indices {
         if iter_index != ancestor_index {
             // increase the depth of the index
             // find the position of the index in bfs thing
             let iter_index_pos = bfs_vector.iter().position(|r| (r.0 == iter_index)).unwrap();
+            println!("increasing parent node {} from {} to {}", bfs_vector[iter_index_pos].0, bfs_vector[iter_index_pos].1, depth_to_increase);
             bfs_vector[iter_index_pos].1 = depth_to_increase;
 
             let mut search_radius = 1;
@@ -375,7 +430,9 @@ pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: 
                     match bfs_vector.iter().position(|r| (r.0 == decendant)) {
                         Some(x) => {
                             none_in_this_iteration = false;
+                            println!("increasing child node {} from {} to {}", bfs_vector[x].0, bfs_vector[x].1, depth_to_increase + search_radius);
                             bfs_vector[x].1 = depth_to_increase + search_radius;
+                            
                         },
                         None => {
 
@@ -386,12 +443,14 @@ pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: 
                 if none_in_this_iteration {
                     break;
                 }
+                if search_radius > 10 {
+                    break;
+                }
                 search_radius += 1;
+                
             }
         }
     }
-    
-
     bfs_vector
 }
 
@@ -631,7 +690,7 @@ pub fn topology_cut_consensus (seqvec: &Vec<String>) -> (Vec<u8>, Vec<usize>) {
 
     }
     for entry in &node_neighbour_counts_parallel {
-        //println!("{} -> {}", entry.0, entry.1);
+        println!("{} -> {}", entry.0, entry.1);
     } 
     //start with topologically sorted top node
     let mut current_node = node_neighbour_counts_parallel[0].clone();
