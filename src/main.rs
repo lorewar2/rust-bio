@@ -1,4 +1,5 @@
 use bio::alignment::{poa::*, TextSlice, pairwise::Scoring};
+use itertools::max;
 use std::{fs, fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -12,7 +13,7 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 18; //8 bad // 10 good
+const SEED: u64 = 2; //8 bad // 10 good
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -25,7 +26,7 @@ const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = true;
 const ALTERNATE_ALIGNER: bool = true;
-const RANDOM_SEQUENCE_LENGTH: usize = 2000;
+const RANDOM_SEQUENCE_LENGTH: usize = 20;
 const NUMBER_OF_RANDOM_SEQUENCES: usize = 10;
 
 // file names input
@@ -176,7 +177,10 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
-    bfs_consensus(normal_graph);
+    let bfs_con = bfs_consensus(normal_graph, &seqvec);
+    let bfs_con_score = get_consensus_score(&seqvec, &bfs_con);
+    println!("normal score: {}", normal_score);
+    println!("bfs score: {}", bfs_con_score);
     /*
     let (topology_consensus, _) = topology_cut_consensus(&seqvec);
     let topology_score = get_consensus_score(&seqvec, &topology_consensus);
@@ -279,7 +283,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     }
 }
 
-pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>) {
+pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<String>) -> Vec<u8> {
     let mut bfs_vector:Vec<(usize, usize, bool)> = vec![]; //(node_number, depth, visited)
     // get the initial node from topology sort
     let mut topologically_ordered = Topo::new(graph);
@@ -295,6 +299,16 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>) {
     // sort the bfs vector by depth
     bfs_vector.sort_by_key(|r| r.1);
 
+    // reposition the nodes with depth
+    bfs_vector = bfs_reposition(graph, bfs_vector);
+
+    // get a single consensus
+    let bfs_consensus_long = bfs_get_single_consensus (graph, &bfs_vector);
+
+    // filter out the consensus using dp
+    let bfs_consensus_short = bfs_filter(&bfs_consensus_long, seq_vec);
+    // the final consensus
+
     // print the vector
     let mut current_depth = 100;
     for entry in bfs_vector {
@@ -306,7 +320,142 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>) {
         current_depth = entry.1;
     }
     println!("");
-    //println!("{:?}", bfs_vector);
+    println!("{:?}", bfs_consensus_long);
+    println!("{:?}", bfs_consensus_short);
+    bfs_consensus_short
+}
+
+pub fn bfs_filter (bfs_consensus_long: &Vec<u8>, seq_vec: &Vec<String>) -> Vec<u8> {
+    let mut bfs_consensus_short: Vec<u8> = vec![];
+    let mut bfs_consensus_count: Vec<usize> = vec![0; bfs_consensus_long.len()];
+    let total_seq = seq_vec.len();
+    // DO DYNAMIC PROGRAMMING
+    for seq in seq_vec {
+        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
+        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(bfs_consensus_long.len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
+        let alignment = aligner.global(&bfs_consensus_long, &seq.as_bytes());
+        let mut bfs_index = alignment.xstart;
+        let mut seq_index = alignment.ystart;
+        for op in &alignment.operations {
+            match op {
+                bio::alignment::AlignmentOperation::Match => {
+                    bfs_consensus_count[bfs_index] += 1;
+                    seq_index += 1;
+                    bfs_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Subst => {
+                    seq_index += 1;
+                    bfs_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Del => {
+                    seq_index += 1;
+                },
+                bio::alignment::AlignmentOperation::Ins => {
+                    bfs_index += 1;
+                },
+                _ => {},
+            }
+        }
+    }
+    // MAKE THE SHORT CONSENSUS
+    // go thorough the count index and put the values in if higher than half
+    for index in 0..bfs_consensus_long.len() {
+        bfs_consensus_short.push(bfs_consensus_long[index]);
+    }
+    bfs_consensus_short
+}
+
+pub fn bfs_get_single_consensus (graph: &Graph<u8, i32, Directed, usize>, bfs_vector: &Vec<(usize, usize, bool)>) -> Vec<u8> {
+    let mut bfs_consensus_long: Vec<u8> = vec![];
+    let mut nothing_available: usize = 0;
+    let mut depth: usize = 0;
+    loop {
+        // get all the nodes of that depth
+        let current_depth_nodes = bfs_vector
+                                            .iter()
+                                            .enumerate()
+                                            .filter_map(|(_, &r)| if r.1 == depth { Some(r.0) } else { None })
+                                            .collect::<Vec<_>>();
+        if current_depth_nodes.len() == 0 {
+            nothing_available += 1; 
+        }
+        else {
+            nothing_available = 0;
+            let mut max_number_of_seq: usize = 0;
+            let mut max_node = 0;
+            // find the node with highest number of seq passing through
+            for depth_node in current_depth_nodes {
+                let number_of_seq = find_the_seq_passing_through(depth_node, graph);
+                if number_of_seq > max_number_of_seq {
+                    max_number_of_seq = number_of_seq;
+                    max_node = depth_node;
+                }
+            }
+            bfs_consensus_long.push(graph.raw_nodes()[max_node].weight);   
+        }
+        if nothing_available > 5 {
+            break;
+        }
+        depth += 1;
+    }
+    bfs_consensus_long
+}
+pub fn bfs_reposition (graph: &Graph<u8, i32, Directed, usize>, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
+    for i in 0..bfs_vector.len() {
+        println!("current node: {}, depth {}", bfs_vector[i].0, bfs_vector[i].1);
+        // get the current depth
+        let current_depth = bfs_vector[i].1;
+        // get the current depth nodes
+        let mut current_depth_nodes = bfs_vector
+                                                .iter()
+                                                .enumerate()
+                                                .filter_map(|(_, &r)| if r.1 == current_depth { Some(r.0) } else { None })
+                                                .collect::<Vec<_>>();
+        println!("current depth nodes: {:?}", current_depth_nodes);
+        for j in i + 1..bfs_vector.len() {
+            let mut mutually_exclusive = true;
+            // get the node index
+            let node_index = bfs_vector[j].0;
+            // check if in current depth nodes
+            if current_depth_nodes.contains(&node_index) {
+                continue;
+            }
+            // check if mutually exclusive to each other //add if it is
+            for index in 0..current_depth_nodes.len() {
+                let compare_node = current_depth_nodes[index];
+                // get the parents
+                let compare_node_parents = get_direction_nodes(Incoming, 1, vec![], compare_node, graph);
+                // get the childen
+                let compare_node_children = get_direction_nodes(Outgoing, 1, vec![], compare_node, graph);
+                // check if node index is parent or child of the parallel nodes
+                if compare_node_parents.contains(&node_index) || compare_node_children.contains(&node_index) {
+                    mutually_exclusive = false;
+                    break;
+                }
+            }
+            // if not mutually exclusive break
+            if !mutually_exclusive {
+                break;
+            }
+            else {
+                println!("added node: {}", node_index);
+                current_depth_nodes.push(node_index);
+            }
+        }
+        // modify the bfs vector with current_depth_nodes
+        // get the indices of bfs vector
+        let bfs_vector_modify_indices = bfs_vector
+                                                .iter()
+                                                .enumerate()
+                                                .filter_map(|(i, &r)| if current_depth_nodes.contains(&r.0) { Some(i) } else { None })
+                                                .collect::<Vec<_>>();
+        // modify them
+        for index in bfs_vector_modify_indices {
+            println!("processing node {}", bfs_vector[index].0);
+            bfs_vector[index].1 = current_depth;
+        }
+    }
+    bfs_vector
 }
 
 pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_depth: usize, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
