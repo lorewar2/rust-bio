@@ -13,7 +13,7 @@ const GAP_OPEN: i32 = -4;
 const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 2; //8 bad // 10 good
+const SEED: u64 = 22; //8 bad // 10 good
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -21,12 +21,12 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = false;
+const USEPACBIODATA: bool = true;
 const PACBIOALLFILES: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = true;
 const ALTERNATE_ALIGNER: bool = true;
-const RANDOM_SEQUENCE_LENGTH: usize = 20;
+const RANDOM_SEQUENCE_LENGTH: usize = 2000;
 const NUMBER_OF_RANDOM_SEQUENCES: usize = 10;
 
 // file names input
@@ -179,6 +179,17 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     let bfs_con = bfs_consensus(normal_graph, &seqvec);
     let bfs_con_score = get_consensus_score(&seqvec, &bfs_con);
+    
+
+    for base in &normal_consensus {
+        print!("{}", *base as char);
+    }
+    println!("");
+
+    for base in &bfs_con {
+        print!("{}", *base as char);
+    }
+    println!("");
     println!("normal score: {}", normal_score);
     println!("bfs score: {}", bfs_con_score);
     /*
@@ -189,15 +200,9 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     println!("normal score: {}", normal_score);
     println!("topo score: {}", topology_score);
     //println!("mod heavy score: {}", mod_heavy_score);
-    for base in &normal_consensus {
-        print!("{}", *base as char);
-    }
-    println!("");
+    
 
-    for base in &topology_consensus {
-        print!("{}", *base as char);
-    }
-    println!("");
+    
      
     // score of calcualted 
     println!("normal score:\t{}", normal_score);
@@ -303,14 +308,13 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<Str
     bfs_vector = bfs_reposition(graph, bfs_vector);
 
     // get a single consensus
-    let bfs_consensus_long = bfs_get_single_consensus (graph, &bfs_vector);
+    let (bfs_consensus_long_vec, bfs_topology_long_vec) = bfs_get_single_consensus (graph, &bfs_vector);
 
-    // filter out the consensus using dp
-    let bfs_consensus_short = bfs_filter(&bfs_consensus_long, seq_vec);
-    // the final consensus
+    // get a single consensus which has the highest score
+    let bfs_consensus_short = bfs_filter(&bfs_consensus_long_vec, seq_vec);
 
     // print the vector
-    let mut current_depth = 100;
+    /*let mut current_depth = 100;
     for entry in bfs_vector {
         if current_depth != entry.1 {
             println!("");
@@ -319,54 +323,53 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<Str
         print!(" {}[{}] ", graph.raw_nodes()[entry.0].weight as char, entry.0);
         current_depth = entry.1;
     }
-    println!("");
-    println!("{:?}", bfs_consensus_long);
-    println!("{:?}", bfs_consensus_short);
+    for con in bfs_consensus_long_vec {
+        println!("{}", con.len());
+    }
+    */
+    //println!("{:?}", bfs_consensus_short);
     bfs_consensus_short
 }
 
-pub fn bfs_filter (bfs_consensus_long: &Vec<u8>, seq_vec: &Vec<String>) -> Vec<u8> {
+pub fn bfs_filter (bfs_consensus_long_vec: &Vec<Vec<u8>>, seq_vec: &Vec<String>) -> Vec<u8> {
     let mut bfs_consensus_short: Vec<u8> = vec![];
-    let mut bfs_consensus_count: Vec<usize> = vec![0; bfs_consensus_long.len()];
     let total_seq = seq_vec.len();
-    // DO DYNAMIC PROGRAMMING
-    for seq in seq_vec {
-        let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
-        let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(bfs_consensus_long.len(), seq.len(), GAP_OPEN, GAP_EXTEND, &score);
-        let alignment = aligner.global(&bfs_consensus_long, &seq.as_bytes());
-        let mut bfs_index = alignment.xstart;
-        let mut seq_index = alignment.ystart;
-        for op in &alignment.operations {
-            match op {
-                bio::alignment::AlignmentOperation::Match => {
-                    bfs_consensus_count[bfs_index] += 1;
-                    seq_index += 1;
-                    bfs_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Subst => {
-                    seq_index += 1;
-                    bfs_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Del => {
-                    seq_index += 1;
-                },
-                bio::alignment::AlignmentOperation::Ins => {
-                    bfs_index += 1;
-                },
-                _ => {},
-            }
-        }
+    let mut index = (bfs_consensus_long_vec.len() / 2) as i32; // get the middle consensus
+    let score_up = get_consensus_score(seq_vec, &bfs_consensus_long_vec[(index + 1) as usize]);
+    let score_down = get_consensus_score(seq_vec, &bfs_consensus_long_vec[(index - 1) as usize]);
+    println!("score up {} score down {}", score_up, score_down);
+    let mut next_step = 1;
+    let mut current_score = 0;
+    let mut prev_score = 0;
+    if score_up > score_down {
+        next_step = 1;
+        current_score = score_up;
+        bfs_consensus_short = bfs_consensus_long_vec[(index + 1) as usize].clone();
     }
-    // MAKE THE SHORT CONSENSUS
-    // go thorough the count index and put the values in if higher than half
-    for index in 0..bfs_consensus_long.len() {
-        bfs_consensus_short.push(bfs_consensus_long[index]);
+    else {
+        next_step = -1;
+        current_score = score_down;
+        bfs_consensus_short = bfs_consensus_long_vec[(index - 1) as usize].clone();
+    }
+
+    loop {
+        prev_score = current_score;
+        current_score = get_consensus_score(seq_vec, &bfs_consensus_long_vec[index as usize]);
+        if (prev_score > current_score) || (index + next_step > bfs_consensus_long_vec.len() as i32) || (index + next_step < 0) {
+            println!("current score: {} prev score {}", current_score, prev_score);
+            break;
+        }
+        else {
+            bfs_consensus_short = bfs_consensus_long_vec[index as usize].clone();
+        }
+        index += next_step;
     }
     bfs_consensus_short
 }
 
-pub fn bfs_get_single_consensus (graph: &Graph<u8, i32, Directed, usize>, bfs_vector: &Vec<(usize, usize, bool)>) -> Vec<u8> {
-    let mut bfs_consensus_long: Vec<u8> = vec![];
+pub fn bfs_get_single_consensus (graph: &Graph<u8, i32, Directed, usize>, bfs_vector: &Vec<(usize, usize, bool)>) -> (Vec<Vec<u8>>, Vec<Vec<usize>>) {
+    let mut bfs_consensus_long: Vec<Vec<u8>> = vec![vec![]; 10];
+    let mut bfs_topology_long: Vec<Vec<usize>> = vec![vec![]; 10];
     let mut nothing_available: usize = 0;
     let mut depth: usize = 0;
     loop {
@@ -391,18 +394,23 @@ pub fn bfs_get_single_consensus (graph: &Graph<u8, i32, Directed, usize>, bfs_ve
                     max_node = depth_node;
                 }
             }
-            bfs_consensus_long.push(graph.raw_nodes()[max_node].weight);   
+            for filter_node in 0..10 {
+                if max_number_of_seq >= filter_node {
+                    bfs_consensus_long[filter_node].push(graph.raw_nodes()[max_node].weight);
+                    bfs_topology_long[filter_node].push(max_node); 
+                }
+            } 
         }
-        if nothing_available > 5 {
+        if nothing_available > 20 {
             break;
         }
         depth += 1;
     }
-    bfs_consensus_long
+    (bfs_consensus_long, bfs_topology_long)
 }
 pub fn bfs_reposition (graph: &Graph<u8, i32, Directed, usize>, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
     for i in 0..bfs_vector.len() {
-        println!("current node: {}, depth {}", bfs_vector[i].0, bfs_vector[i].1);
+        //println!("current node: {}, depth {}", bfs_vector[i].0, bfs_vector[i].1);
         // get the current depth
         let current_depth = bfs_vector[i].1;
         // get the current depth nodes
@@ -411,7 +419,7 @@ pub fn bfs_reposition (graph: &Graph<u8, i32, Directed, usize>, mut bfs_vector: 
                                                 .enumerate()
                                                 .filter_map(|(_, &r)| if r.1 == current_depth { Some(r.0) } else { None })
                                                 .collect::<Vec<_>>();
-        println!("current depth nodes: {:?}", current_depth_nodes);
+        //println!("current depth nodes: {:?}", current_depth_nodes);
         for j in i + 1..bfs_vector.len() {
             let mut mutually_exclusive = true;
             // get the node index
@@ -438,7 +446,7 @@ pub fn bfs_reposition (graph: &Graph<u8, i32, Directed, usize>, mut bfs_vector: 
                 break;
             }
             else {
-                println!("added node: {}", node_index);
+                //println!("added node: {}", node_index);
                 current_depth_nodes.push(node_index);
             }
         }
@@ -451,7 +459,7 @@ pub fn bfs_reposition (graph: &Graph<u8, i32, Directed, usize>, mut bfs_vector: 
                                                 .collect::<Vec<_>>();
         // modify them
         for index in bfs_vector_modify_indices {
-            println!("processing node {}", bfs_vector[index].0);
+            //println!("processing node {}", bfs_vector[index].0);
             bfs_vector[index].1 = current_depth;
         }
     }
@@ -465,7 +473,7 @@ pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_dep
     bfs_queue.add((head_index, head_depth)).unwrap();
     'test: while bfs_queue.size() > 0 {
         let (node_index, node_depth) = bfs_queue.remove().unwrap();
-        println!("bfs on {}", node_index);
+        //println!("bfs on {}", node_index);
         // sort the bfs vector by depth
 
         // print the vector
@@ -482,7 +490,7 @@ pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_dep
 
          // get the children of the node
         let children = get_direction_nodes(Outgoing, 1, vec![], node_index, graph);
-        println!("bfs children {:?}", children);
+        //println!("bfs children {:?}", children);
         // process all childeren first
         for child in &children {
             match bfs_vector.iter().position(|r| r.0 == *child) {
@@ -490,7 +498,7 @@ pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_dep
                     // this node is already visited
                     // increase depth of all the nodes in this depth except the parent of this node
                     if bfs_vector[x].1 < node_depth + 1 {
-                        println!("increase node{}", bfs_vector[x].0 );
+                        //println!("increase node{}", bfs_vector[x].0 );
                         let parent_bfs_index = bfs_vector.iter().position(|r| r.0 == node_index).unwrap();
                         let parent_bfs_depth = bfs_vector[parent_bfs_index].1;
                         bfs_vector = bfs_depth_increase(graph, node_index, bfs_vector, *child, parent_bfs_depth + 1);
@@ -526,8 +534,8 @@ pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_dep
 
 pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: usize, mut bfs_vector: Vec<(usize, usize, bool)>, node_to_increase: usize, depth_to_increase: usize) -> Vec<(usize, usize, bool)> {
     // find the current depth of node_to_increase
-    println!("I am node {:?}", node_index);
-    println!("original node to increase {}", node_to_increase);
+    //println!("I am node {:?}", node_index);
+    //println!("original node to increase {}", node_to_increase);
     let node_to_increase_index = bfs_vector.iter().position(|r| r.0 == node_to_increase).unwrap();
     let node_to_increase_depth = bfs_vector[node_to_increase_index].1;
     
@@ -538,13 +546,13 @@ pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: 
                     .filter_map(|(_, &r)| if r.1 == node_to_increase_depth { Some(r.0) } else { None })
                     .collect::<Vec<_>>();
     
-    println!("nodes to increase {:?}", nodes_to_increase_indices);
+    //println!("nodes to increase {:?}", nodes_to_increase_indices);
     // find the node which is ancestor of node_index who has the node_to_increase_depth
     let mut search_radius = 1;
     let mut ancestor_index = 0;
     let mut ancestors = vec![node_index];
     loop {
-        println!("ancestor searching {:?}", ancestors);
+        //println!("ancestor searching {:?}", ancestors);
         match bfs_vector.iter().position(|r| (ancestors.contains(&r.0) && r.1 == node_to_increase_depth)) {
             Some(x) => {
                 ancestor_index = bfs_vector[x].0;
@@ -559,14 +567,14 @@ pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: 
         }
         ancestors = get_xiterations_direction_nodes(Incoming, search_radius, vec![], node_index, graph);
     }
-    println!("ancestor node {}", ancestor_index);
+    //println!("ancestor node {}", ancestor_index);
     // update the depth of all nodes in that depth and their children except the ancestor nodes
     for iter_index in nodes_to_increase_indices {
         if iter_index != ancestor_index {
             // increase the depth of the index
             // find the position of the index in bfs thing
             let iter_index_pos = bfs_vector.iter().position(|r| (r.0 == iter_index)).unwrap();
-            println!("increasing parent node {} from {} to {}", bfs_vector[iter_index_pos].0, bfs_vector[iter_index_pos].1, depth_to_increase);
+            //println!("increasing parent node {} from {} to {}", bfs_vector[iter_index_pos].0, bfs_vector[iter_index_pos].1, depth_to_increase);
             bfs_vector[iter_index_pos].1 = depth_to_increase;
 
             let mut search_radius = 1;
@@ -579,7 +587,7 @@ pub fn bfs_depth_increase (graph: &Graph<u8, i32, Directed, usize>, node_index: 
                     match bfs_vector.iter().position(|r| (r.0 == decendant)) {
                         Some(x) => {
                             none_in_this_iteration = false;
-                            println!("increasing child node {} from {} to {}", bfs_vector[x].0, bfs_vector[x].1, depth_to_increase + search_radius);
+                            //println!("increasing child node {} from {} to {}", bfs_vector[x].0, bfs_vector[x].1, depth_to_increase + search_radius);
                             bfs_vector[x].1 = depth_to_increase + search_radius;
                             
                         },
