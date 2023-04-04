@@ -1,5 +1,6 @@
 use bio::alignment::{poa::*, TextSlice, pairwise::Scoring};
 use itertools::max;
+use triple_accel::hamming;
 use std::{fs, fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -9,8 +10,8 @@ use logaddexp::LogAddExp;
 use libm::exp;
 use queues::*;
 
-const GAP_OPEN: i32 = -4;
-const GAP_EXTEND: i32 = -2;
+const GAP_OPEN: i32 = -2;
+const GAP_EXTEND: i32 = -1;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
 const SEED: u64 = 22; //8 bad // 10 good
@@ -21,12 +22,12 @@ const HOMOPOLYMER: bool = false;
 const QUALITY_SCORE: bool = false;
 const NUM_OF_ITER_FOR_PARALLEL: usize = 10;
 const NUM_OF_ITER_FOR_ZOOMED_GRAPHS: usize = 4;
-const USEPACBIODATA: bool = true;
+const USEPACBIODATA: bool = false;
 const PACBIOALLFILES: bool = false;
+const USER_DEFINED: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = true;
-const ALTERNATE_ALIGNER: bool = true;
-const RANDOM_SEQUENCE_LENGTH: usize = 2000;
+const RANDOM_SEQUENCE_LENGTH: usize = 20;
 const NUMBER_OF_RANDOM_SEQUENCES: usize = 10;
 
 // file names input
@@ -75,7 +76,7 @@ fn main() {
         }
     }
     else {
-        let mut seqvec;
+        let mut seqvec = vec![];
         // read the pacbio consensus
         if USEPACBIODATA {
             //create a folder 
@@ -87,6 +88,29 @@ fn main() {
             seqvec = check_the_scores_and_change_alignment(seqvec, &pac_bio_consensus);
             seqvec.insert(0, pac_bio_consensus);
             run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME, ".fastq"].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name, ERROR_LINE_NUMBER);
+        }
+        else if USER_DEFINED {
+            //create a folder 
+            fs::create_dir([OUTPUT_RESULT_PATH, "user"].concat()).ok();
+            //create corrosponding result files
+            let (output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name) = create_required_result_files(&[OUTPUT_RESULT_PATH, "user"].concat());
+            //seqvec.push("SCATGGTGGCTTACTTCGTCAAAGCATGCAAGCCAAGAAGGCGACAGAGAGAGAGAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCATGGTGGCTTACTTCGTACAAAGCATGCAAGCCAAGAAGGCGACAGAGCAGAAGAGAGTAGAGGGAGAE".to_string());
+            seqvec.push("SCATGGTGGCTTACTTCGTCAAGCATGCAAGCAAGAAGGCGACAGAGAGAAAGGAAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCATGGGTGGCTTACTTCGTCAAAGCATGCAAGCCAAGAAGCGACAGAGAGTAAAGAGAGAGAGAGGTGAE".to_string());
+            seqvec.push("SCATGGTGGCTTACTTCGTCAAAAGATGCAAGCCAAGAAGGCGACAGAGAGAAAGAGAGAGGAGGGAGAE".to_string());
+            seqvec.push("SCAAGTGGCTTACTTCGTCAAAGCATGCAAGCCAGAAGCGACGAGAGAAAGAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCATGTGCGCTTACTTCGTCAAAGCATGCAAGGCCAGAAGGCGACAGACGAGAAAGAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCATGGTGGCTTTACTTTCGTCAAAGCATTCAAGCCAAGAACGAACAGAGAGAAAGAGAGAGAGGGGAAE".to_string());
+            seqvec.push("SACCATGGTGCTTACTGCAGTTCAAAGCATTGCAAGCCAAGAAGGCGACAGAGAGGAAAGAGATGAGAGGGAGGAE".to_string());
+            seqvec.push("SCATGGTGCTTACTTCGTCAAAGCATGCAGCCCAAGAAGGAGCGACAGGAGAGAAAGAGAGGAGAGGAGAE".to_string());
+            seqvec.push("SCATGGTGGCTTACTTCGGTCAAAGCATTGCAAGCCAAGAAGGCGACAGAGAGAAGAGAAAGAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCTTGGTGCTTACTCGGCAAAGCATGATCAAAGCCAAGAAGGCGACAGAGAAAAGAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCTGGTGGACTTACTTCGTCAAAGCATGCAAGCCAAGAAGGCCGACAGAGAGTAAAGAAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCATGGTGCTTACTTCGTCAAAGTCATGCAAGCCAAGAAGGCGACAGAGAGAAAGAGAGAGAGGGAGAGE".to_string());
+            seqvec.push("SCATGGTGGGCTTACTTCGTCAAGCATGCAAGCCACAGAAGGCGACAGAGAGAAGAGAGAGAGGGAGAE".to_string());
+            seqvec.push("SCATGTGGCTTACTTCGTCCAAGCATGCAAGCCAAAAGGCGACAGAGAGAAAGAGAGAGAGGGGAGAE".to_string());
+            run(seqvec, [INPUT_CONSENSUS_FOLDER_PATH, INPUT_FILE_NAME].concat().to_string(), output_debug_file_name, output_consensus_file_name, output_scores_file_name, output_normal_graph_file_name, output_homopolymer_graph_file_name, output_quality_graph_file_name, output_quality_file_name, ERROR_LINE_NUMBER);
         }
         else {
             //create a folder 
@@ -177,6 +201,13 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
+    let number = divide_pattern_to_number(vec![84, 84, 71, 71, 84]);
+    let pattern = divide_number_to_pattern(number, 5);
+    println!("{:?}", pattern);
+    println!("number {}", number);
+    let frequent = divide_find_frequent_kmers_with_mismatches(vec![84, 84, 84, 84, 71, 71, 84], 3, 1);
+    println!("{:?}", frequent);
+    /* 
     let bfs_con = bfs_consensus(normal_graph, &seqvec);
     let bfs_con_score = get_consensus_score(&seqvec, &bfs_con);
     
@@ -192,6 +223,7 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     println!("");
     println!("normal score: {}", normal_score);
     println!("bfs score: {}", bfs_con_score);
+    println!("{}", format!("{:?}", Dot::new(&normal_graph.map(|_, n| (*n) as char, |_, e| *e)))); */
     /*
     let (topology_consensus, _) = topology_cut_consensus(&seqvec);
     let topology_score = get_consensus_score(&seqvec, &topology_consensus);
@@ -200,10 +232,6 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     println!("normal score: {}", normal_score);
     println!("topo score: {}", topology_score);
     //println!("mod heavy score: {}", mod_heavy_score);
-    
-
-    
-     
     // score of calcualted 
     println!("normal score:\t{}", normal_score);
     // score of pacbio
@@ -288,6 +316,105 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     }
 }
 
+pub fn divide_find_frequent_kmers_with_mismatches (sequence: Vec<u8>, k_mer: usize, required_distance: usize) -> Vec<Vec<u8>> {
+    // initialize stuff
+    let mut frequent_patterns: Vec<Vec<u8>> = vec![];
+    let number_of_bases: i32 = 4;
+    let number_of_total_kmers = (number_of_bases.pow(k_mer as u32)) as usize;
+    let mut frequency_array: Vec<usize> = vec![0; number_of_total_kmers];
+    let mut max_frequency: usize = 0;
+    // go through all the kmers in the sequence
+    for index in 0..number_of_total_kmers {
+        // get the pattern
+        let pattern = divide_number_to_pattern(index, k_mer);
+        //println!("pattern {:?}", pattern);
+        // count the frequency of the pattern
+        let obtained_frequency = divide_approximate_pattern_count(&sequence, &pattern, required_distance);
+        frequency_array[index] = obtained_frequency;
+        if obtained_frequency >= max_frequency {
+            max_frequency = obtained_frequency;
+            //println!("max frequency pattern {:?} {}", pattern, max_frequency);
+        }
+    }
+    // find the max count in frequency array and get those patterns, get the positions by iterating through it.
+    let max_indices = frequency_array
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, &r)| if r == max_frequency { Some(i) } else { None })
+                            .collect::<Vec<_>>();
+    for index in max_indices {
+        let pattern = divide_number_to_pattern(index, k_mer);
+        frequent_patterns.push(pattern.clone());
+    }
+    frequent_patterns
+}
+
+pub fn divide_approximate_pattern_count (sequence: &Vec<u8>, pattern: &Vec<u8>, required_distance: usize) -> usize {
+    let mut k_mer_count: usize = 0;
+    for index in 0..(sequence.len() - pattern.len()) {
+        let current_pattern = sequence[index..(index + pattern.len())].to_vec();
+        if divide_min_hamming_distance(&current_pattern, &pattern) <= required_distance {
+            k_mer_count += 1;
+        }
+    }
+    k_mer_count
+}
+
+pub fn divide_number_to_pattern (number: usize, k: usize) -> Vec<u8> {
+    let mut processing_number = number;
+    let mut pattern: Vec<u8> = vec![];
+    for _ in 0..k {
+        let remainder = processing_number % 4;
+        match remainder {
+            0 => {pattern.push(65);},
+            1 => {pattern.push(67);},
+            2 => {pattern.push(71);},
+            3 => {pattern.push(84);},
+            _ => {},
+        }
+        processing_number = processing_number / 4;
+    }
+    pattern.reverse();
+    pattern
+}
+
+pub fn divide_pattern_to_number (pattern: Vec<u8>) -> usize {
+    let mut prefix_value: usize = 0;
+    let mut symbol_value: usize = 0;
+    if pattern.len() == 0 {
+        return 0
+    }
+    symbol_value = divide_symbol_to_number(pattern[pattern.len() - 1]);
+    if pattern.len() >= 1 {
+        prefix_value = 4 * divide_pattern_to_number(pattern[0..pattern.len() - 1].to_vec());
+    }
+    //println!(" {} {} ", symbol_value, prefix_value);
+    symbol_value + prefix_value
+}
+
+pub fn divide_symbol_to_number (symbol: u8) -> usize {
+    let mut number: usize = 0;
+    match symbol {
+        65 => {number = 0;},
+        67 => {number = 1;},
+        71 => {number = 2;},
+        84 => {number = 3;},
+        _ => {}
+    }
+    number
+}
+
+pub fn divide_min_hamming_distance (seq1: &Vec<u8>, seq2: &Vec<u8>) -> usize {
+    let mut hamming_distance: usize = 0;
+    // go through them one by one and count the differences
+    for index in 0..seq1.len() {
+        if seq1[index] != seq2[index] {
+            hamming_distance += 1;
+        }
+    }
+    hamming_distance
+}
+
 pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<String>) -> Vec<u8> {
     let mut bfs_vector:Vec<(usize, usize, bool)> = vec![]; //(node_number, depth, visited)
     // get the initial node from topology sort
@@ -297,7 +424,7 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<Str
     let head_node_content = (head_node_index, 0, true);
     // make the vector
     bfs_vector.push(head_node_content);
-    //println!("{}", format!("{:?}", Dot::new(&graph.map(|_, n| (*n) as char, |_, e| *e))));
+    println!("{}", format!("{:?}", Dot::new(&graph.map(|_, n| (*n) as char, |_, e| *e))));
     // run bfs on the inital node
     bfs_vector = bfs(graph, head_node_index, 0, bfs_vector);
 
@@ -314,7 +441,7 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<Str
     let bfs_consensus_short = bfs_filter(&bfs_consensus_long_vec, seq_vec);
 
     // print the vector
-    /*let mut current_depth = 100;
+    let mut current_depth = 100;
     for entry in bfs_vector {
         if current_depth != entry.1 {
             println!("");
@@ -326,7 +453,7 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<Str
     for con in bfs_consensus_long_vec {
         println!("{}", con.len());
     }
-    */
+    
     //println!("{:?}", bfs_consensus_short);
     bfs_consensus_short
 }
@@ -334,7 +461,7 @@ pub fn bfs_consensus (graph: &Graph<u8, i32, Directed, usize>, seq_vec: &Vec<Str
 pub fn bfs_filter (bfs_consensus_long_vec: &Vec<Vec<u8>>, seq_vec: &Vec<String>) -> Vec<u8> {
     let mut bfs_consensus_short: Vec<u8> = vec![];
     let total_seq = seq_vec.len();
-    let mut index = (bfs_consensus_long_vec.len() / 2) as i32; // get the middle consensus
+    let mut index = 5 as i32; // get the middle consensus
     let score_up = get_consensus_score(seq_vec, &bfs_consensus_long_vec[(index + 1) as usize]);
     let score_down = get_consensus_score(seq_vec, &bfs_consensus_long_vec[(index - 1) as usize]);
     println!("score up {} score down {}", score_up, score_down);
@@ -351,11 +478,13 @@ pub fn bfs_filter (bfs_consensus_long_vec: &Vec<Vec<u8>>, seq_vec: &Vec<String>)
         current_score = score_down;
         bfs_consensus_short = bfs_consensus_long_vec[(index - 1) as usize].clone();
     }
+    index += next_step;
 
     loop {
         prev_score = current_score;
+        println!("index {}", index);
         current_score = get_consensus_score(seq_vec, &bfs_consensus_long_vec[index as usize]);
-        if (prev_score > current_score) || (index + next_step > bfs_consensus_long_vec.len() as i32) || (index + next_step < 0) {
+        if (prev_score > current_score) || (index + next_step >= bfs_consensus_long_vec.len() as i32) || (index + next_step < 0) {
             println!("current score: {} prev score {}", current_score, prev_score);
             break;
         }
@@ -401,13 +530,14 @@ pub fn bfs_get_single_consensus (graph: &Graph<u8, i32, Directed, usize>, bfs_ve
                 }
             } 
         }
-        if nothing_available > 20 {
+        if nothing_available > 2000 {
             break;
         }
         depth += 1;
     }
     (bfs_consensus_long, bfs_topology_long)
 }
+
 pub fn bfs_reposition (graph: &Graph<u8, i32, Directed, usize>, mut bfs_vector: Vec<(usize, usize, bool)>) -> Vec<(usize, usize, bool)> {
     for i in 0..bfs_vector.len() {
         //println!("current node: {}, depth {}", bfs_vector[i].0, bfs_vector[i].1);
@@ -473,7 +603,7 @@ pub fn bfs (graph: &Graph<u8, i32, Directed, usize>, head_index: usize, head_dep
     bfs_queue.add((head_index, head_depth)).unwrap();
     'test: while bfs_queue.size() > 0 {
         let (node_index, node_depth) = bfs_queue.remove().unwrap();
-        //println!("bfs on {}", node_index);
+        // println!("bfs on {}", node_index);
         // sort the bfs vector by depth
 
         // print the vector
@@ -2119,6 +2249,76 @@ fn get_consensus_from_file (filename: impl AsRef<Path>) -> String {
         .collect();
     let consensus: String = lines[1].clone().into();
     consensus
+}
+
+fn get_simulated_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> { 
+    let mut tempvec: Vec<String> = vec![];
+    let mut seqvec: Vec<String> = vec![];
+    let file = File::open(filename).expect("no such file");
+    let buf = BufReader::new(file);
+    let lines: Vec<String> = buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect();
+    //get the indices of >
+    let mut indices: Vec<usize> = vec![];
+    let mut index = 0;
+    for line in &lines{
+        if line.as_bytes()[0] as char == '+'{
+            indices.push(index - 1);
+        }
+        if line.as_bytes()[0] as char == '>'{
+            //println!("{:?}", line);
+            indices.push(index);
+        }
+        index += 1;
+    }
+    //join the lines between >s and remove > lines
+    for index in indices {
+        tempvec.push(lines[index].clone());
+    }
+    println!("{:?}", tempvec);
+    /* 
+    //reverse complement every other line
+    let mut index = 0;
+    for seq in &tempvec{
+        if index % 2 != 0 {
+            let mut tempseq: Vec<char> = vec![];
+            let iterator = seq.chars().rev().into_iter();
+            for char in iterator{
+                tempseq.push(match char {
+                    'A' => 'T',
+                    'C' => 'G',
+                    'G' => 'C',
+                    'T' => 'A',
+                    _ => ' ',
+                });
+            }
+            seqvec.push(tempseq.iter().cloned().collect::<String>());
+        }
+        else {
+            seqvec.push((*seq.clone()).to_string());
+        }
+        index += 1;
+    }
+    //get rid of the last incomplete reading
+    seqvec.pop();
+    //sort the vector by size
+    seqvec.sort_by_key(|seq| seq.len());
+    //drop the sequences which are > 1.8x median size
+    let mut drop_index = seqvec.len();
+    let median_size: f32 = seqvec[(seqvec.len() / 2) - 1].len() as f32;
+    for index in (seqvec.len() / 2)..(seqvec.len() - 1) {
+        if seqvec[index].len() as f32 > (median_size * 1.8) {
+            drop_index = index;
+            break;
+        }
+    }
+    for _ in drop_index..seqvec.len() {
+        seqvec.pop();
+    }
+    // rearrange the seq vector median first and rest according median size difference
+    seqvec.sort_by(|a, b| ((a.len() as f32 - median_size).abs()).partial_cmp(&(b.len() as f32 - median_size).abs()).unwrap());*/
+    seqvec
 }
 
 fn get_fasta_sequences_from_file(filename: impl AsRef<Path>) -> Vec<String> {
