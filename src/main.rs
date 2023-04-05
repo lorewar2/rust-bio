@@ -3,7 +3,7 @@ use itertools::max;
 use triple_accel::hamming;
 use std::{fs, fs::File, fs::OpenOptions, io::{prelude::*, BufReader}, path::Path, fmt, cmp, collections::HashMap};
 use chrono;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{Rng, SeedableRng, rngs::StdRng, seq};
 use petgraph::{Directed, Graph, Incoming, Outgoing, Direction, dot::Dot, graph::NodeIndex, visit::Topo};
 use statrs::function::factorial::binomial;
 use logaddexp::LogAddExp;
@@ -27,7 +27,7 @@ const PACBIOALLFILES: bool = false;
 const USER_DEFINED: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = true;
-const RANDOM_SEQUENCE_LENGTH: usize = 20;
+const RANDOM_SEQUENCE_LENGTH: usize = 200;
 const NUMBER_OF_RANDOM_SEQUENCES: usize = 10;
 
 // file names input
@@ -201,12 +201,15 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
+    // divide the sequence in to two 
+    
     let number = divide_pattern_to_number(vec![84, 84, 71, 71, 84]);
     let pattern = divide_number_to_pattern(number, 5);
     println!("{:?}", pattern);
     println!("number {}", number);
     let frequent = divide_find_frequent_kmers_with_mismatches(vec![84, 84, 84, 84, 71, 71, 84], 3, 1);
     println!("{:?}", frequent);
+    divide_pipeline(&seqvec);
     /* 
     let bfs_con = bfs_consensus(normal_graph, &seqvec);
     let bfs_con_score = get_consensus_score(&seqvec, &bfs_con);
@@ -316,21 +319,60 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     }
 }
 
-pub fn divide_find_frequent_kmers_with_mismatches (sequence: Vec<u8>, k_mer: usize, required_distance: usize) -> Vec<Vec<u8>> {
+pub fn divide_pipeline (seqvec: &Vec<String>) {
+    let mut original_sequences = vec![]; //sequence, number sequence
+    let mut sliced_sequences: Vec<Vec<Vec<u8>>> = vec![];   //slice, sequence number, sequence
+    let mut intermediates: Vec<Vec<u8>> = vec![];
+    for seq in seqvec{
+        original_sequences.push((*seq.clone().as_bytes()).to_vec());
+    }
+    // put start and end to all the sequences
+    //for index in 0..original_sequences.len() {
+    //    original_sequences[index].insert(0, 83);
+    //    original_sequences[index].push(69);
+    //};
+    // get middle k-mer if available search for a 5-mer in middle 20 while increasing the mismatch count to 2, 
+    let mut test_sequence = vec![];
+    for seq in original_sequences {
+        let seq_mid = seq.len() / 2;
+        test_sequence = [test_sequence, seq[seq_mid - 10..seq_mid + 10].to_vec()].concat();
+    }
+    println!("{:?}", test_sequence);
+    // go through all the possibilities max k_mer with min required distance and max frequency in a loop trial and error
+    let frequent = divide_find_frequent_kmers_with_mismatches(test_sequence, 8, 1);
+    // find the missing sections kmer by increasing the required_distance
+
+    // from the kmers divide the sequences
+
+    // attach anchors S E
+
+    // do poa and get consensus of the slices
+
+    // get the full consensus by adding kmer and slices
+
+    // check the scores of one division
+
+}
+
+pub fn divide_find_frequent_kmers_with_mismatches (sequence: Vec<u8>, k_mer: usize, required_distance: usize) -> (Vec<Vec<u8>>, Vec<Vec<usize>>) {
     // initialize stuff
     let mut frequent_patterns: Vec<Vec<u8>> = vec![];
     let number_of_bases: i32 = 4;
     let number_of_total_kmers = (number_of_bases.pow(k_mer as u32)) as usize;
     let mut frequency_array: Vec<usize> = vec![0; number_of_total_kmers];
+    let mut obtained_indices_array: Vec<Vec<usize>> = vec![vec![]; number_of_total_kmers];
+    let mut max_obatained_indices: Vec<Vec<usize>> = vec![];
     let mut max_frequency: usize = 0;
+    
     // go through all the kmers in the sequence
     for index in 0..number_of_total_kmers {
         // get the pattern
         let pattern = divide_number_to_pattern(index, k_mer);
         //println!("pattern {:?}", pattern);
         // count the frequency of the pattern
-        let obtained_frequency = divide_approximate_pattern_count(&sequence, &pattern, required_distance);
+        let (obtained_frequency, obtained_indices) = divide_approximate_pattern_count(&sequence, &pattern, required_distance);
         frequency_array[index] = obtained_frequency;
+        obtained_indices_array[index] = obtained_indices;
         if obtained_frequency >= max_frequency {
             max_frequency = obtained_frequency;
             //println!("max frequency pattern {:?} {}", pattern, max_frequency);
@@ -345,19 +387,22 @@ pub fn divide_find_frequent_kmers_with_mismatches (sequence: Vec<u8>, k_mer: usi
     for index in max_indices {
         let pattern = divide_number_to_pattern(index, k_mer);
         frequent_patterns.push(pattern.clone());
+        max_obatained_indices.push(obtained_indices_array[index].clone());
     }
-    frequent_patterns
+    (frequent_patterns, max_obatained_indices)
 }
 
-pub fn divide_approximate_pattern_count (sequence: &Vec<u8>, pattern: &Vec<u8>, required_distance: usize) -> usize {
+pub fn divide_approximate_pattern_count (sequence: &Vec<u8>, pattern: &Vec<u8>, required_distance: usize) -> (usize, Vec<usize>) {
     let mut k_mer_count: usize = 0;
+    let mut location_indices: Vec<usize> = vec![];
     for index in 0..(sequence.len() - pattern.len()) {
         let current_pattern = sequence[index..(index + pattern.len())].to_vec();
         if divide_min_hamming_distance(&current_pattern, &pattern) <= required_distance {
             k_mer_count += 1;
+            location_indices.push(index);
         }
     }
-    k_mer_count
+    (k_mer_count, location_indices)
 }
 
 pub fn divide_number_to_pattern (number: usize, k: usize) -> Vec<u8> {
