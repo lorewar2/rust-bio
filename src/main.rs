@@ -207,9 +207,10 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     let pattern = divide_number_to_pattern(number, 5);
     println!("{:?}", pattern);
     println!("number {}", number);
-    let frequent = divide_find_frequent_kmers_with_mismatches(vec![84, 84, 84, 84, 71, 71, 84], 3, 1);
-    println!("{:?}", frequent);
+    let index_of_test = divide_find_pattern_in_sequence_with_mismatches(&vec![65, 65, 65, 71], &vec![65, 65, 71]);
+    println!("test {}", index_of_test);
     divide_pipeline(&seqvec);
+    println!("normal score: {}", normal_score);
     /* 
     let bfs_con = bfs_consensus(normal_graph, &seqvec);
     let bfs_con_score = get_consensus_score(&seqvec, &bfs_con);
@@ -333,28 +334,116 @@ pub fn divide_pipeline (seqvec: &Vec<String>) {
     //};
     // get middle k-mer if available search for a 5-mer in middle 20 while increasing the mismatch count to 2, 
     let mut test_sequence = vec![];
-    for seq in original_sequences {
+    for seq in &original_sequences {
         let seq_mid = seq.len() / 2;
         test_sequence = [test_sequence, seq[seq_mid - 10..seq_mid + 10].to_vec()].concat();
     }
     println!("{:?}", test_sequence);
     // go through all the possibilities max k_mer with min required distance and max frequency in a loop trial and error
-    let frequent = divide_find_frequent_kmers_with_mismatches(test_sequence, 8, 1);
+    // hamming distance one, maximize k, while only one frequency available
+    let mut frequent_kmer = vec![];
+    let mut frequent_indices = vec![];
+    let mut k_mer: usize = 5;
+    loop {
+        (frequent_kmer, frequent_indices) = divide_find_frequent_kmers_with_mismatches(&test_sequence, k_mer, 1);
+        if frequent_indices.len() == 1 && frequent_indices[0].len() <= seqvec.len() || k_mer > 12 {
+            break;
+        }
+        k_mer += 1;
+    }
+    println!("{:?} {:?}", frequent_kmer, frequent_indices);
     // find the missing sections kmer by increasing the required_distance
+    // what are the missing sequences
+    let mut valid_indices = vec![false; seqvec.len()];
+    let mut final_indices: Vec<usize> = vec![0; seqvec.len()];
+    let current_index_of_seq: usize = 0;
+    for index in 0..frequent_indices[0].len() {
+        if frequent_indices[0][index] % 20 <= (20 - k_mer) {
+            valid_indices[frequent_indices[0][index] / 20] = true;
+            final_indices[frequent_indices[0][index] / 20] = frequent_indices[0][index] % 20;
+        }
 
+    }
+    println!("valid indices {:?} {:?}", valid_indices, final_indices);
+    // find them make a function to search for a string by increasing the hamming distance
+    for index in 0..valid_indices.len() {
+        if !valid_indices[index] {
+            // get the middle
+            let seq_mid = original_sequences[index].len() / 2;
+            let seq_part = original_sequences[index][seq_mid - 10..seq_mid + 10].to_vec();
+            // find the k_mer index
+            let obtained_index = divide_find_pattern_in_sequence_with_mismatches (&seq_part, &frequent_kmer[0]);
+            // put it in the vector
+            final_indices[index] = obtained_index;
+        }
+    }
+    println!("valid indices {:?} {:?}", valid_indices, final_indices);
     // from the kmers divide the sequences
-
+    // put the divided slices into vector
+    let mut first_half_slices = vec![];
+    let mut second_half_slices = vec![];
+    for index in 0..original_sequences.len() {
+        let first_break_pos = (original_sequences[index].len() / 2) - 10;
+        let first_half = original_sequences[index][0..first_break_pos + final_indices[index]].to_vec();
+        let second_half = original_sequences[index][first_break_pos + final_indices[index] + frequent_kmer[0].len()..original_sequences[index].len()].to_vec();
+        first_half_slices.push(first_half);
+        second_half_slices.push(second_half);
+    }
     // attach anchors S E
 
     // do poa and get consensus of the slices
+    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
+    let mut seqnum: u8 = 0;
+    let mut aligner = Aligner::new(scoring, &first_half_slices[0]);
+    for seq in &first_half_slices{
+        if seqnum != 0 {
+            aligner.global(seq).add_to_graph();
+        }
+        seqnum += 1;
+        println!("Sequence {} processed", seqnum);
+    }
+    let firsthalf_consensus;
+    (firsthalf_consensus, _) = aligner.poa.consensus(); //just poa
 
+    let scoring = Scoring::new(GAP_OPEN, GAP_EXTEND, |a: u8, b: u8| if a == b { MATCH } else { MISMATCH });
+    let mut seqnum: u8 = 0;
+    let mut aligner = Aligner::new(scoring, &second_half_slices[0]);
+    for seq in &second_half_slices{
+        if seqnum != 0 {
+            aligner.global(seq).add_to_graph();
+        }
+        seqnum += 1;
+        println!("Sequence {} processed", seqnum);
+    }
+    let secondhalf_consensus;
+    (secondhalf_consensus, _) = aligner.poa.consensus(); //just poa
     // get the full consensus by adding kmer and slices
-
+    let divide_consensus = [firsthalf_consensus, frequent_kmer[0].clone(), secondhalf_consensus].concat();
+    println!("divide consensus {:?} ", divide_consensus);
     // check the scores of one division
+    let divide_consensus_score = get_consensus_score(&seqvec, &divide_consensus);
+    println!("score {}", divide_consensus_score);
 
 }
 
-pub fn divide_find_frequent_kmers_with_mismatches (sequence: Vec<u8>, k_mer: usize, required_distance: usize) -> (Vec<Vec<u8>>, Vec<Vec<usize>>) {
+pub fn divide_find_pattern_in_sequence_with_mismatches (sequence: &Vec<u8>, pattern: &Vec<u8>) -> usize {
+    let mut required_distance = 0;
+    let location_index: usize;
+    'bigloop: loop {
+        for index in 0..(sequence.len() - pattern.len() + 1) {
+            let current_pattern = sequence[index..(index + pattern.len())].to_vec();
+            if divide_min_hamming_distance(&current_pattern, &pattern) <= required_distance {
+                location_index = index;
+                println!("whatt {:?} {:?} {} {} {} ", current_pattern, pattern, location_index, divide_min_hamming_distance(&current_pattern, &pattern), required_distance);
+                break 'bigloop;
+            }
+        }
+        required_distance += 1;
+    }
+    location_index
+}
+
+pub fn divide_find_frequent_kmers_with_mismatches (sequence: &Vec<u8>, k_mer: usize, required_distance: usize) -> (Vec<Vec<u8>>, Vec<Vec<usize>>) {
     // initialize stuff
     let mut frequent_patterns: Vec<Vec<u8>> = vec![];
     let number_of_bases: i32 = 4;
@@ -395,7 +484,7 @@ pub fn divide_find_frequent_kmers_with_mismatches (sequence: Vec<u8>, k_mer: usi
 pub fn divide_approximate_pattern_count (sequence: &Vec<u8>, pattern: &Vec<u8>, required_distance: usize) -> (usize, Vec<usize>) {
     let mut k_mer_count: usize = 0;
     let mut location_indices: Vec<usize> = vec![];
-    for index in 0..(sequence.len() - pattern.len()) {
+    for index in 0..(sequence.len() - pattern.len() + 1) {
         let current_pattern = sequence[index..(index + pattern.len())].to_vec();
         if divide_min_hamming_distance(&current_pattern, &pattern) <= required_distance {
             k_mer_count += 1;
