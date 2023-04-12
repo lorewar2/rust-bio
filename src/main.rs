@@ -352,6 +352,13 @@ fn homopolymer_dp (homo_x: Vec<HomopolymerCell>, homo_y: Vec<HomopolymerCell>) -
     let mut align_vec: Vec<u8> = Vec::new();
     let mut homo_score: isize = 0;
 
+    // calculation variables
+    // initialize the weight matrix with (0, and size)
+    let mut match_matrix: Vec<Vec<(isize, usize)>> = vec![vec![(0, 0); homo_y.len() + 1]; homo_x.len() + 1]; // match or mismatch diagonal edges
+    let mut del_matrix: Vec<Vec<(isize, usize)>> = vec![vec![(0, 0); homo_y.len() + 1]; homo_x.len() + 1];  // x deletions right direction edges
+    let mut ins_matrix: Vec<Vec<(isize, usize)>> = vec![vec![(0, 0); homo_y.len() + 1]; homo_x.len() + 1]; // x insertion down direction edges
+    // initialize the backtrace matrix with ms, ds, and is
+    let mut back_matrix: Vec<Vec<char>> = vec![vec!['m'; homo_y.len() + 1]; homo_x.len() + 1];
     (align_vec, homo_score)
 }
 
@@ -420,7 +427,7 @@ fn normal_dp (seq_x: &Vec<u8>, seq_y: &Vec<u8>) -> (Vec<u8>, isize) {
     let mut j = seq_y.len();
     let score = match_matrix[i][j];
     loop {
-        match back_matrix[i][j]{
+        match back_matrix[i][j] {
             'i' => {
                 i = i - 1;
                 align_vec.push(seq_x[i]);
