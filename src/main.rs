@@ -276,7 +276,18 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     let alignment = aligner.global(&seqvec[0].as_bytes().to_vec(), &seqvec[1].as_bytes().to_vec());
     println!("score of original {}", alignment.score);
 
+    //convert the two sequences to homopolymer vec
+    let mut homopolymer_vec_x: Vec<HomopolymerCell> = convert_sequence_to_homopolymer (seqvec[0].clone());
+    let mut homopolymer_vec_y: Vec<HomopolymerCell> = convert_sequence_to_homopolymer (seqvec[1].clone());
 
+    for base in &homopolymer_vec_x {
+        println!("{} {}", base.base, base.frequency);
+    }
+    println!("");
+    for base in &homopolymer_vec_y {
+        println!("{} {}", base.base, base.frequency);
+    }
+    homopolymer_dp (&homopolymer_vec_x, &homopolymer_vec_y);
     // divide the sequence in to two 
     /* 
     divide_pipeline(&seqvec);
@@ -314,6 +325,23 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     */
 }
 
+pub fn convert_sequence_to_homopolymer (sequence: String) -> Vec<HomopolymerCell> {
+    let mut homopolymer_vec: Vec<HomopolymerCell> = vec![];
+    let mut prev_base: u8 = 0;
+    let mut frequency: usize = 1;
+    for base in sequence.as_bytes().to_vec() {
+        if prev_base == base {
+            frequency += 1;
+        }
+        else if prev_base != 0 {
+            homopolymer_vec.push(HomopolymerCell::new(prev_base, frequency));
+            frequency = 1;
+        }
+        prev_base = base;
+    }
+    homopolymer_vec.push(HomopolymerCell::new(prev_base, frequency));
+    homopolymer_vec
+}
 pub struct HomopolymerSequence {
     pub bases: Vec<u8>,
     pub frequencies: Vec<u32>,
@@ -344,14 +372,21 @@ impl HomopolymerSequence {
 }
 
 pub struct HomopolymerCell {
-    pub base: Vec<u8>,
-    pub frequency: Vec<u32>,
+    pub base: u8,
+    pub frequency: usize,
 }
 
-fn homopolymer_dp (homo_x: Vec<HomopolymerCell>, homo_y: Vec<HomopolymerCell>) -> (Vec<u8>, isize) {
-    let mut align_vec: Vec<u8> = Vec::new();
-    let mut homo_score: isize = 0;
+impl HomopolymerCell {
+    fn new(base: u8, frequency: usize) -> Self{
+        HomopolymerCell {
+            base: base,
+            frequency: frequency,
+        }
+    }
+}
 
+fn homopolymer_dp (homo_x: &Vec<HomopolymerCell>, homo_y: &Vec<HomopolymerCell>) -> (Vec<u8>, isize) {
+    let mut align_vec: Vec<u8> = Vec::new();
     // calculation variables
     // initialize the weight matrix with (0, and size)
     let mut match_matrix: Vec<Vec<(isize, usize)>> = vec![vec![(0, 0); homo_y.len() + 1]; homo_x.len() + 1]; // match or mismatch diagonal edges
@@ -359,7 +394,143 @@ fn homopolymer_dp (homo_x: Vec<HomopolymerCell>, homo_y: Vec<HomopolymerCell>) -
     let mut ins_matrix: Vec<Vec<(isize, usize)>> = vec![vec![(0, 0); homo_y.len() + 1]; homo_x.len() + 1]; // x insertion down direction edges
     // initialize the backtrace matrix with ms, ds, and is
     let mut back_matrix: Vec<Vec<char>> = vec![vec!['m'; homo_y.len() + 1]; homo_x.len() + 1];
-    (align_vec, homo_score)
+    for i in 1..homo_y.len() + 1 {
+        back_matrix[0][i] = 'd';
+        let temp_value = del_matrix[0][i - 1].0 + (GAP_EXTEND as isize) * (homo_y[i - 1].frequency as isize);
+        del_matrix[0][i].0 = temp_value; ins_matrix[0][i].0 = temp_value; match_matrix[0][i].0 = temp_value;
+        del_matrix[0][i].1 = homo_y[i - 1].frequency; ins_matrix[0][i].1 = homo_y[i - 1].frequency; match_matrix[0][i].1 = homo_y[i - 1].frequency;
+    }
+    for i in 1..homo_x.len() + 1 {
+        back_matrix[i][0] = 'i';
+        let temp_value = ins_matrix[i - 1][0].0 + (GAP_EXTEND as isize) * (homo_x[i - 1].frequency as isize);
+        ins_matrix[i][0].0 = temp_value; del_matrix[i][0].0 = temp_value; match_matrix[i][0].0 = temp_value;
+        ins_matrix[i][0].1 = homo_x[i - 1].frequency; del_matrix[i][0].1 = homo_x[i - 1].frequency; match_matrix[i][0].1 = homo_x[i - 1].frequency;
+    }
+    // calculations
+    // filling out score matrices and back matrix
+    for i in 1..homo_x.len() + 1 {
+        for j in 1..homo_y.len() + 1 {
+            // fill del matrix 
+            // get j - 1 score from same matrix with gap extend
+            let temp_del_score = del_matrix[i][j - 1].0 + ((GAP_EXTEND as isize) * (homo_y[j - 1].frequency as isize));
+            // get j - 1 score from match matrix with gap open penalty
+            let temp_match_score = match_matrix[i][j - 1].0 + GAP_OPEN as isize + ((GAP_EXTEND as isize) * ((homo_y[j - 1].frequency - 1) as isize));
+            // insert the max
+            del_matrix[i][j].0 = cmp::max(temp_del_score, temp_match_score);
+            del_matrix[i][j].1 = homo_y[j - 1].frequency;
+
+            // fill ins matrix
+            // get i - 1 score from the same matrix
+            let temp_ins_score = ins_matrix[i - 1][j].0 + ((GAP_EXTEND as isize) * (homo_x[i - 1].frequency as isize));
+            // get i - 1 score from the match matrix with gap open penalty
+            let temp_match_score = match_matrix[i - 1][j].0 + GAP_OPEN as isize + ((GAP_EXTEND as isize) * ((homo_x[i - 1].frequency - 1) as isize));
+            // insert the max
+            ins_matrix[i][j].0 = cmp::max(temp_ins_score, temp_match_score);
+            ins_matrix[i][j].1 = homo_x[i - 1].frequency;
+
+            // fill match matrix
+            // get the i,j from the insertion matrix
+            let temp_ins_score = ins_matrix[i][j].0;
+            // get the i,j from the deletion matrix
+            let temp_del_score = del_matrix[i][j].0;
+            // get the match from i-1,j-1 from match matrix with match score or mismatch score
+            let temp_match_score;
+            if homo_x[i - 1].base == homo_y[j - 1].base {
+                temp_match_score = match_matrix[i - 1][j - 1].0 + ((MATCH as isize) * (cmp::min(homo_x[i - 1].frequency as isize, homo_y[j - 1].frequency as isize)));
+            }
+            else {
+                temp_match_score = match_matrix[i - 1][j - 1].0 + ((MISMATCH as isize) * (cmp::min(homo_x[i - 1].frequency as isize, homo_y[j - 1].frequency as isize)));
+            }
+            // insert the max
+            match_matrix[i][j].0 = cmp::max(temp_match_score, cmp::max(temp_ins_score, temp_del_score));
+            if (temp_match_score >= temp_ins_score) && (temp_match_score >= temp_del_score) {
+                back_matrix[i][j] = 'm';
+                match_matrix[i][j].1 = cmp::min(homo_x[i - 1].frequency, homo_y[j - 1].frequency);
+            }
+            else if temp_ins_score > temp_del_score {
+                back_matrix[i][j] = 'i';
+                match_matrix[i][j].1 = homo_x[i - 1].frequency;
+            }
+            else {
+                back_matrix[i][j] = 'd';
+                match_matrix[i][j].1 = homo_y[j - 1].frequency;
+            }
+        }
+    }
+    println!("ins score");
+    for i in 0..homo_x.len() + 1 {
+        for j in 0..homo_y.len() + 1 {
+            print!("{:>3}", ins_matrix[i][j].0);
+        }
+        println!("");
+    }
+    println!("ins freq");
+    for i in 0..homo_x.len() + 1 {
+        for j in 0..homo_y.len() + 1 {
+            print!("{:>3}", ins_matrix[i][j].1);
+        }
+        println!("");
+    }
+    println!("mat score");
+    for i in 0..homo_x.len() + 1 {
+        for j in 0..homo_y.len() + 1 {
+            print!("{:>3}", match_matrix[i][j].0);
+        }
+        println!("");
+    }
+    println!("mat freq");
+    for i in 0..homo_x.len() + 1 {
+        for j in 0..homo_y.len() + 1 {
+            print!("{:>3}", match_matrix[i][j].1);
+        }
+        println!("");
+    }
+    println!("del score");
+    for i in 0..homo_x.len() + 1 {
+        for j in 0..homo_y.len() + 1 {
+            print!("{:>3}", del_matrix[i][j].0);
+        }
+        println!("");
+    }
+    println!("del freq");
+    for i in 0..homo_x.len() + 1 {
+        for j in 0..homo_y.len() + 1 {
+            print!("{:>3}", del_matrix[i][j].1);
+        }
+        println!("");
+    }
+    // back tracing using back matrix and filling out align_vec
+    let mut i = homo_x.len();
+    let mut j = homo_y.len();
+    let score = match_matrix[i][j].0;
+    loop {
+        match back_matrix[i][j] {
+            'i' => {
+                i = i - 1;
+                for _ in 0..homo_x[i].frequency {
+                    align_vec.push(homo_x[i].base);
+                }
+            },
+            'm' => {
+                i = i - 1;
+                j = j - 1;
+                for _ in 0..cmp::min(homo_x[i].frequency, homo_y[i].frequency) {
+                    align_vec.push(homo_x[i].base);
+                }
+            },
+            'd' => {
+                j = j - 1;
+                for _ in 0..homo_y[j].frequency {
+                    align_vec.push(homo_y[j].base);
+                }
+            },
+            _ => (),
+        }
+        if i == 0 && j == 0 {
+            break;
+        }
+    }
+    (align_vec, score)
 }
 
 fn normal_dp (seq_x: &Vec<u8>, seq_y: &Vec<u8>) -> (Vec<u8>, isize) {
