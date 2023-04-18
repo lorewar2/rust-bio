@@ -9,10 +9,10 @@ use libm::exp;
 use queues::*;
 
 const GAP_OPEN: i32 = -2;
-const GAP_EXTEND: i32 = -1;
+const GAP_EXTEND: i32 = -3;
 const MATCH: i32 = 2;
 const MISMATCH: i32 = -4;
-const SEED: u64 = 0;
+const SEED: u64 = 6;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -281,13 +281,13 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     let mut homopolymer_vec_y: Vec<HomopolymerCell> = convert_sequence_to_homopolymer (seqvec[1].clone());
 
     for base in &homopolymer_vec_x {
-        println!("{} {}", base.base, base.frequency);
+        //println!("{} {}", base.base, base.frequency);
     }
     println!("");
     for base in &homopolymer_vec_y {
-        println!("{} {}", base.base, base.frequency);
+        //println!("{} {}", base.base, base.frequency);
     }
-    homopolymer_dp (&homopolymer_vec_x, &homopolymer_vec_y);
+    //homopolymer_dp (&homopolymer_vec_x, &homopolymer_vec_y);
     // divide the sequence in to two 
     /* 
     divide_pipeline(&seqvec);
@@ -544,8 +544,10 @@ fn normal_dp (seq_x: &Vec<u8>, seq_y: &Vec<u8>) -> (Vec<u8>, isize) {
     let mut ins_matrix: Vec<Vec<isize>> = vec![vec![0; seq_y.len() + 1]; seq_x.len() + 1]; // x insertion down direction edges
     // initialize the backtrace matrix with ms, ds, and is
     let mut back_matrix: Vec<Vec<char>> = vec![vec!['m'; seq_y.len() + 1]; seq_x.len() + 1];
-    for i in 1..seq_y.len() + 1 {back_matrix[0][i] = 'd'; let temp_value = del_matrix[0][i - 1] + GAP_EXTEND as isize; del_matrix[0][i] = temp_value; ins_matrix[0][i] = temp_value; match_matrix[0][i] = temp_value;}
-    for i in 1..seq_x.len() + 1 {back_matrix[i][0] = 'i'; let temp_value = ins_matrix[i - 1][0] + GAP_EXTEND as isize; ins_matrix[i][0] = temp_value; del_matrix[i][0] = temp_value; match_matrix[i][0] = temp_value;}
+    back_matrix[0][1] = 'd'; let temp_value = GAP_OPEN as isize; del_matrix[0][1] = temp_value; ins_matrix[0][1] = temp_value; match_matrix[0][1] = temp_value;
+    back_matrix[1][0] = 'i'; let temp_value = GAP_OPEN as isize; ins_matrix[1][0] = temp_value; del_matrix[1][0] = temp_value; match_matrix[1][0] = temp_value;
+    for i in 2..seq_y.len() + 1 {back_matrix[0][i] = 'd'; let temp_value = del_matrix[0][i - 1] + GAP_EXTEND as isize; del_matrix[0][i] = temp_value; ins_matrix[0][i] = temp_value; match_matrix[0][i] = temp_value;}
+    for i in 2..seq_x.len() + 1 {back_matrix[i][0] = 'i'; let temp_value = ins_matrix[i - 1][0] + GAP_EXTEND as isize; ins_matrix[i][0] = temp_value; del_matrix[i][0] = temp_value; match_matrix[i][0] = temp_value;}
 
     // calculations
     // filling out score matrices and back matrix
@@ -592,6 +594,27 @@ fn normal_dp (seq_x: &Vec<u8>, seq_y: &Vec<u8>) -> (Vec<u8>, isize) {
                 back_matrix[i][j] = 'd';
             }
         }
+    }
+    println!("ins score");
+    for i in 0..seq_x.len() + 1 {
+        for j in 0..seq_y.len() + 1 {
+            print!("{:>3}", ins_matrix[i][j]);
+        }
+        println!("");
+    }
+    println!("match score");
+    for i in 0..seq_x.len() + 1 {
+        for j in 0..seq_y.len() + 1 {
+            print!("{:>3}", match_matrix[i][j]);
+        }
+        println!("");
+    }
+    println!("ins score");
+    for i in 0..seq_x.len() + 1 {
+        for j in 0..seq_y.len() + 1 {
+            print!("{:>3}", del_matrix[i][j]);
+        }
+        println!("");
     }
     // back tracing using back matrix and filling out align_vec
     let mut i = seq_x.len();
