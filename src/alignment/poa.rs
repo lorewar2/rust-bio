@@ -264,6 +264,75 @@ impl<F: MatchFunc> Aligner<F> {
     pub fn global(&mut self, query: TextSlice) -> &mut Self {
         self.query = query.to_vec();
         self.traceback = self.poa.global(query);
+        let mut topo =  Topo::new(&self.poa.graph);
+        let mut topo_indices = Vec::new();
+        while let Some(node) = topo.next(&self.poa.graph) {
+            topo_indices.push(node);
+        }
+        println!("printing score matrix");
+        print!("{:>3} {:>3} ", 'S', 'S');
+        for query_index in 0..query.len() {
+            print!("{:>3} ", query[query_index] as char);
+        }
+        println!("");
+        for i in 0..self.traceback.rows + 1{
+            if i != 0 {
+                print!("{:>3} ", self.poa.graph.raw_nodes()[topo_indices[i - 1].index()].weight as char);
+            }
+            else {
+                print!("{:>3} ", 'S');
+            }
+            for j in 0..self.traceback.cols + 1{
+                print!("{:>3} ", self.traceback.matrix[i][j].score);
+            }
+            println!("");
+        }
+        
+        println!("printing back matrix");
+        print!("{:>3} {:>3} ", 'S', 'S');
+        for query_index in 0..query.len() {
+            print!("{:>3} ", query[query_index] as char);
+        }
+        println!("");
+        for i in 0..self.traceback.rows + 1{
+            if i != 0 {
+                print!("{:>3} ", self.poa.graph.raw_nodes()[topo_indices[i - 1].index()].weight as char);
+            }
+            else {
+                print!("{:>3} ", 'S');
+            }
+            for j in 0..self.traceback.cols + 1{
+                match self.traceback.matrix[i][j].op {
+                    AlignmentOperation::Match(Some((p, _))) => {
+                        if query[j - 1] == self.poa.graph.raw_nodes()[p].weight {
+                            print!("{:>3} ", 'm');
+                        }
+                        else {
+                            print!("{:>3} ", 's');
+                        }
+                        
+                    }
+                    AlignmentOperation::Del(Some((p, _))) => {
+                        print!("{:>3} ", 'i');
+                    }
+                    AlignmentOperation::Ins(Some(p)) => {
+                        print!("{:>3} ", 'd');
+                    }
+                    AlignmentOperation::Match(None) => {
+                        print!("{:>3} ", 'M');
+                    }
+                    AlignmentOperation::Del(None) => {
+                        print!("{:>3} ", 'i');
+                    }
+                    AlignmentOperation::Ins(None) => {
+                        print!("{:>3} ", 'd');
+                    }
+                }
+                
+            }
+            println!("");
+        }
+        
         //self.traceback.print(&self.poa.graph, query);
         //self.traceback.print_operation(&self.poa.graph, query);
         //println!(" ");
@@ -438,6 +507,7 @@ impl<F: MatchFunc> Poa<F> {
         for op in aln.operations.iter() {
             match op {
                 AlignmentOperation::Match(None) => {
+                    println!("m");
                     let node: NodeIndex<usize> = NodeIndex::new(0);
                     if (seq[i] != self.graph.raw_nodes()[head.index()].weight) && (seq[i] != b'X') {
                         let node = self.graph.add_node(seq[i]);
@@ -451,6 +521,7 @@ impl<F: MatchFunc> Poa<F> {
                     i += 1;
                 }
                 AlignmentOperation::Match(Some((_, p))) => {
+                    println!("m");
                     let node = NodeIndex::new(*p);
                     if (seq[i] != self.graph.raw_nodes()[*p].weight) && (seq[i] != b'X') {
                         let node = self.graph.add_node(seq[i]);
@@ -473,6 +544,7 @@ impl<F: MatchFunc> Poa<F> {
                     i += 1;
                 }
                 AlignmentOperation::Ins(None) => {
+                    println!("d");
                     let node = self.graph.add_node(seq[i]);
                     if edge_not_connected {
                         self.graph.add_edge(prev, node, 1);    
@@ -482,12 +554,13 @@ impl<F: MatchFunc> Poa<F> {
                     i += 1;
                 }
                 AlignmentOperation::Ins(Some(_)) => {
+                    println!("d");
                     let node = self.graph.add_node(seq[i]);
                     self.graph.add_edge(prev, node, 1);
                     prev = node;
                     i += 1;
                 }
-                AlignmentOperation::Del(_) => {} // we should only have to skip over deleted nodes
+                AlignmentOperation::Del(_) => {println!("i");} // we should only have to skip over deleted nodes
             }
         }
     }
