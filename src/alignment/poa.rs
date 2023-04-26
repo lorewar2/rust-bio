@@ -305,10 +305,10 @@ impl<F: MatchFunc> Aligner<F> {
                 match self.traceback.matrix[i][j].op {
                     AlignmentOperation::Match(Some((p, _))) => {
                         if query[j - 1] == self.poa.graph.raw_nodes()[p].weight {
-                            print!("{:>3} ", 'm');
+                            print!("{:>1}{:>1}{:>1} ", 'm', query[j - 1] as char, self.poa.graph.raw_nodes()[p].weight as char);
                         }
                         else {
-                            print!("{:>3} ", 's');
+                            print!("{:>1}{:>2} ", 's', self.poa.scoring.match_fn.score(query[j - 1], self.poa.graph.raw_nodes()[p].weight));
                         }
                         
                     }
@@ -436,6 +436,7 @@ impl<F: MatchFunc> Poa<F> {
         while let Some(node) = topo.next(&self.graph) {
             // reference base and index
             let r = self.graph.raw_nodes()[node.index()].weight; // reference base at previous index
+            println!("base {}", r as char);
             //println!("Previous Index Reference Node being processed index:{} base:{}", node.index(), r); //added
             let i = node.index() + 1;
             traceback.last = node;
@@ -477,7 +478,7 @@ impl<F: MatchFunc> Poa<F> {
                     }
                     max_cell
                 };
-
+                
                 let score = max(
                     max_cell,
                     TracebackCell {
@@ -485,9 +486,11 @@ impl<F: MatchFunc> Poa<F> {
                         op: AlignmentOperation::Ins(Some(i - 1)),
                     },
                 );
+                print!(" {:>3} ", score.score);
                 //println!("{}", score.score);
                 traceback.set(i, j, score);
             }
+            println!("");
         }
 
         traceback

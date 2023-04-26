@@ -8,11 +8,11 @@ use logaddexp::LogAddExp;
 use libm::exp;
 use queues::*;
 
-const GAP_OPEN: i32 = -2;
-const GAP_EXTEND: i32 = -3;
+const GAP_OPEN: i32 = -4;
+const GAP_EXTEND: i32 = -2;
 const MATCH: i32 = 2;
-const MISMATCH: i32 = -4;
-const SEED: u64 = 6;
+const MISMATCH: i32 = -3;
+const SEED: u64 = 2;
 const CONSENSUS_METHOD: u8 = 1; //0==average 1==median //2==mode
 const ERROR_PROBABILITY: f64 = 0.85;
 const HOMOPOLYMER_DEBUG: bool = false;
@@ -25,8 +25,8 @@ const PACBIOALLFILES: bool = false;
 const USER_DEFINED: bool = false;
 const ERROR_LINE_NUMBER: usize = 10; //default 10
 const PRINT_ALL: bool = true;
-const RANDOM_SEQUENCE_LENGTH: usize = 10;
-const NUMBER_OF_RANDOM_SEQUENCES: usize = 2;
+const RANDOM_SEQUENCE_LENGTH: usize = 200;
+const NUMBER_OF_RANDOM_SEQUENCES: usize = 5;
 
 // file names input
 const INPUT_FILE_NAME: &str = "11928566";
@@ -268,18 +268,21 @@ fn run (seqvec: Vec<String>, input_consensus_file_name: String, output_debug_fil
     /////////////////////////////
     //alternate aligners       //
     /////////////////////////////
-    let (aligned_dp, dp_score) = normal_dp (&seqvec[0].as_bytes().to_vec(), &seqvec[1].as_bytes().to_vec());
-    println!("consensus: {:?} score {}", aligned_dp, dp_score);
+    //let (aligned_dp, dp_score) = normal_dp (&seqvec[0].as_bytes().to_vec(), &seqvec[1].as_bytes().to_vec());
+    //println!("consensus: {:?} score {}", aligned_dp, dp_score);
 
     let score = |a: u8, b: u8| if a == b { MATCH } else { MISMATCH };
     let mut aligner = bio::alignment::pairwise::Aligner::with_capacity(seqvec[0].len(), seqvec[1].len(), GAP_OPEN, GAP_EXTEND, &score);
     let alignment = aligner.global(&seqvec[0].as_bytes().to_vec(), &seqvec[1].as_bytes().to_vec());
-    println!("score of original {}", alignment.score);
+    println!("score of original {}", normal_score);
 
     //convert the two sequences to homopolymer vec
     let mut homopolymer_vec_x: Vec<HomopolymerCell> = convert_sequence_to_homopolymer (seqvec[0].clone());
     let mut homopolymer_vec_y: Vec<HomopolymerCell> = convert_sequence_to_homopolymer (seqvec[1].clone());
 
+    for base in normal_consensus {
+        print!("{}", base as char);
+    }
     for base in &homopolymer_vec_x {
         //println!("{} {}", base.base, base.frequency);
     }
